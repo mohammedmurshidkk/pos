@@ -1,0 +1,11 @@
+# secrets — .mcp.json carries the Stitch API key
+.mcp.json
+
+node_modules/
+dist/
+build/
+.expo/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

@@ -1,0 +1,285 @@
+import { and, eq, inArray, ne } from 'drizzle-orm'
+import { calculate, kotKindForSeq, newId, nextKotSeq, routeToKitchens, schema, type CalcLine } from '@pos/shared'
+import { db, raw } from '../db.js'
+import { audit } from '../audit.js'
+import { conflict, forbidden, notFound } from '../errors.js'
+import { printQueue } from '../queue.js'
+import type { KotPayload } from '../templates.js'
+
+const s = schema
+
+export interface NewLine {
+  itemId: string
+  qty: number
+  note?: string | null
+  modifiers?: { id: string; name: string; priceDelta: number }[]
+}
+
+const now = () => new Date()
+const stamp = () =>
+  new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+function getSettings() {
+  const [row] = db.select().from(s.settings).where(eq(s.settings.id, 'singleton')).all()
+  if (!row) throw new Error('settings missing — run `pnpm seed`')
+  return row
+}
+
+/** Allocated inside a transaction so two tills can never take the same number. */
+function nextOrderNo(): number {
+  return raw.transaction(() => {
+    const row = raw.prepare('select order_next_no as n from settings where id = ?').get('singleton') as { n: number }
+    raw.prepare('update settings set order_next_no = ? where id = ?').run(row.n + 1, 'singleton')
+    return row.n
+  })()
+}
+
+export function createOrder(input: {
+  type: 'dine_in' | 'takeaway' | 'car' | 'delivery'
+  tableId?: string | null
+  ticketLabel?: string | null
+  vehicleNo?: string | null
+  bayNo?: string | null
+  phoneSnapshot?: string | null
+  addressSnapshot?: string | null
+  createdBy: string
+}) {
+  const id = newId()
+  db.insert(s.orders).values({
+    id,
+    orderNo: nextOrderNo(),
+    type: input.type,
+    status: 'open',
+    tableId: input.tableId ?? null,
+    ticketLabel: input.ticketLabel ?? null,
+    vehicleNo: input.vehicleNo ?? null,
+    bayNo: input.bayNo ?? null,
+    phoneSnapshot: input.phoneSnapshot ?? null,
+    addressSnapshot: input.addressSnapshot ?? null,
+    // waiterId is set by whoever sends the first KOT, not at creation.
+    createdBy: input.createdBy,
+    openedAt: now(),
+  }).run()
+  return getOrder(id)
+}
+
+export function addItems(orderId: string, lines: NewLine[], employeeId: string) {
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) throw notFound('order')
+  if (order.status === 'settled' || order.status === 'void') {
+    throw conflict('Order is settled and can no longer be edited. Start a new order.')
+  }
+
+  for (const l of lines) {
+    const item = db.select().from(s.items).where(eq(s.items.id, l.itemId)).get()
+    if (!item) throw notFound(`item ${l.itemId}`)
+    db.insert(s.orderItems).values({
+      id: newId(),
+      orderId,
+      itemId: item.id,
+      // Snapshots: a later price change must never rewrite this order.
+      nameSnapshot: item.name,
+      unitPriceSnapshot: item.price,
+      qty: l.qty,
+      modifiersJson: JSON.stringify(l.modifiers ?? []),
+      note: l.note ?? null,
+      status: 'new',
+      createdBy: employeeId,
+    }).run()
+  }
+
+  db.update(s.orders).set({ dirtySincePrint: true }).where(eq(s.orders.id, orderId)).run()
+  recalculate(orderId)
+  return getOrder(orderId)
+}
+
+/** Recompute totals from lines + settings. Voided lines never count. */
+export function recalculate(orderId: string) {
+  const cfg = getSettings()
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) throw new Error('order not found')
+
+  const lines = db
+    .select()
+    .from(s.orderItems)
+    .where(and(eq(s.orderItems.orderId, orderId), ne(s.orderItems.status, 'void')))
+    .all()
+
+  const calcLines: CalcLine[] = lines.map((l) => ({
+    qty: l.qty,
+    unitPrice: l.unitPriceSnapshot,
+    modifierDeltas: (JSON.parse(l.modifiersJson) as { priceDelta: number }[]).map((m) => m.priceDelta),
+  }))
+
+  const result = calculate(
+    calcLines,
+    { type: order.discountType, value: order.discountValue },
+    {
+      taxRate: cfg.taxRateBp / 100,
+      priceIncludesTax: cfg.priceIncludesTax,
+      serviceChargePct: cfg.serviceChargeBp / 100,
+      currencyDecimals: cfg.currencyDecimals,
+    },
+  )
+
+  db.update(s.orders).set({
+    subtotal: result.subtotal,
+    discountAmount: result.discountAmount,
+    serviceCharge: result.serviceCharge,
+    taxAmount: result.tax,
+    total: result.total,
+  }).where(eq(s.orders.id, orderId)).run()
+
+  return result
+}
+
+/**
+ * Send unsent lines to the kitchens.
+ *
+ * Returns as soon as the database transaction commits. Printing happens after,
+ * on the queue — the waiter's tablet is never blocked by a slow printer.
+ *
+ * `suppressKot` covers the already-served case: the lines are marked sent so
+ * they never queue, but no ticket is created and the kitchen receives nothing.
+ */
+export function sendToKitchen(orderId: string, employeeId: string, suppressKot = false) {
+  const cfg = getSettings()
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) throw notFound('order')
+  if (order.status === 'settled' || order.status === 'void') {
+    throw conflict('Order is settled and can no longer be edited. Start a new order.')
+  }
+
+  const employee = db.select().from(s.employees).where(eq(s.employees.id, employeeId)).get()
+  if (!employee) throw notFound('employee')
+  if (suppressKot && !employee.canSaveWithoutKot) {
+    throw forbidden(`${employee.name} is not permitted to save an order without a KOT.`)
+  }
+
+  const unsent = db
+    .select()
+    .from(s.orderItems)
+    .where(and(eq(s.orderItems.orderId, orderId), eq(s.orderItems.status, 'new')))
+    .all()
+  if (unsent.length === 0) return { tickets: [], suppressed: suppressKot }
+
+  // Resolve each line's kitchen through its category.
+  const routable = unsent.map((l) => {
+    const item = db.select().from(s.items).where(eq(s.items.id, l.itemId)).get()!
+    const cat = db.select().from(s.categories).where(eq(s.categories.id, item.categoryId)).get()!
+    const mods = JSON.parse(l.modifiersJson) as { name: string }[]
+    return {
+      id: l.id,
+      kitchenId: cat.kitchenId,
+      qty: l.qty,
+      name: l.nameSnapshot,
+      note: l.note,
+      modifiers: mods.map((m) => m.name),
+    }
+  })
+
+  if (!cfg.defaultKitchenId) throw new Error('settings.defaultKitchenId is not set')
+  const groups = routeToKitchens(routable, cfg.defaultKitchenId)
+
+  const existingSeqs = db
+    .select({ seq: s.kotTickets.seq })
+    .from(s.kotTickets)
+    .where(eq(s.kotTickets.orderId, orderId))
+    .all()
+    .map((r) => r.seq)
+  const seq = nextKotSeq(existingSeqs)
+  const kind = kotKindForSeq(seq)
+
+  const waiterName = employee.name
+  const tableLabel = order.tableId
+    ? (() => {
+        const t = db.select().from(s.tables).where(eq(s.tables.id, order.tableId!)).get()
+        if (!t) return null
+        const a = db.select().from(s.areas).where(eq(s.areas.id, t.areaId)).get()
+        return a ? `${t.name} - ${a.name}` : t.name
+      })()
+    : order.vehicleNo ?? order.phoneSnapshot ?? null
+
+  const created: { kitchenId: string; ticketId: string | null }[] = []
+
+  raw.transaction(() => {
+    // First sender owns the order. Later rounds by other waiters are allowed
+    // and recorded per line, but the credit stays with the owner.
+    if (!order.waiterId) {
+      db.update(s.orders).set({ waiterId: employeeId }).where(eq(s.orders.id, orderId)).run()
+    }
+
+    for (const g of groups) {
+      if (suppressKot) {
+        created.push({ kitchenId: g.kitchenId, ticketId: null })
+        continue
+      }
+      const kitchen = db.select().from(s.kitchens).where(eq(s.kitchens.id, g.kitchenId)).get()!
+      const ticketId = newId()
+      const payload: KotPayload = {
+        kitchenName: kitchen.name,
+        orderNo: order.orderNo,
+        seq,
+        kind,
+        orderType: order.type,
+        tableLabel,
+        ticketLabel: order.ticketLabel,
+        waiterName,
+        at: stamp(),
+        lines: g.lines.map((l) => ({ qty: l.qty, name: l.name, note: l.note, modifiers: l.modifiers })),
+      }
+      db.insert(s.kotTickets).values({
+        id: ticketId, orderId, kitchenId: g.kitchenId, seq, kind,
+        linesJson: JSON.stringify(payload.lines),
+      }).run()
+      db.insert(s.printJobs).values({
+        id: newId(), printerId: kitchen.printerId, kind: 'kot',
+        payloadJson: JSON.stringify(payload), refId: ticketId,
+      }).run()
+      created.push({ kitchenId: g.kitchenId, ticketId })
+    }
+
+    db.update(s.orderItems)
+      .set({ status: 'sent', kotSuppressed: suppressKot })
+      .where(inArray(s.orderItems.id, unsent.map((l) => l.id)))
+      .run()
+  })()
+
+  recalculate(orderId)
+
+  // Fire printers after the commit. Never inside the transaction.
+  if (!suppressKot) {
+    for (const g of groups) {
+      const kitchen = db.select().from(s.kitchens).where(eq(s.kitchens.id, g.kitchenId)).get()!
+      printQueue.kick(kitchen.printerId)
+    }
+  }
+
+  return { tickets: created, seq, kind, suppressed: suppressKot }
+}
+
+export function getOrder(orderId: string) {
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) return null
+  const lines = db.select().from(s.orderItems).where(eq(s.orderItems.orderId, orderId)).all()
+  return { ...order, lines: lines.map((l) => ({ ...l, modifiers: JSON.parse(l.modifiersJson) })) }
+}
+
+export function listOpenOrders() {
+  return db.select().from(s.orders).where(inArray(s.orders.status, ['open', 'billed'])).all()
+}
+
+/** Admin reassigns service credit. `createdBy` is never touched. */
+export function setWaiter(orderId: string, waiterId: string, employeeId: string) {
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) throw notFound('order')
+  if (order.status === 'settled' || order.status === 'void') throw conflict('Order is locked.')
+  const waiter = db.select().from(s.employees).where(eq(s.employees.id, waiterId)).get()
+  if (!waiter) throw notFound('waiter')
+
+  db.update(s.orders).set({ waiterId }).where(eq(s.orders.id, orderId)).run()
+  audit(employeeId, 'order.reassign_waiter', 'order', orderId, {
+    from: order.waiterId, to: waiterId, toName: waiter.name,
+  })
+  return getOrder(orderId)
+}

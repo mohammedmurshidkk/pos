@@ -1,0 +1,1 @@
+ALTER TABLE `orders` ADD `dirty_since_print` integer DEFAULT false NOT NULL;
