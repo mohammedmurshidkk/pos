@@ -1,0 +1,35 @@
+name: Android APK
+
+# A React Native release build needs several GB of free disk for the Gradle
+# cache and NDK artifacts. A CI runner has that; a working laptop often does not.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pos/mobile exec expo prebuild --platform android --clean
+      - name: Build release APK
+        working-directory: packages/mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: waiter-apk
+          path: packages/mobile/android/app/build/outputs/apk/release/*.apk
+          retention-days: 30

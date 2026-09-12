@@ -47,6 +47,33 @@ export interface BillPayload {
   footer: string
 }
 
+export interface ZReportPayload {
+  businessName: string
+  currencyDisplay: string
+  currencyDecimals: number
+  taxName: string
+  invoicePrefix: string
+  report: {
+    counterName: string
+    cashierName: string
+    openedAt: string | Date
+    closedAt: string | Date | null
+    paymentModes: { name: string; count: number; total: number }[]
+    grandTotal: number
+    cash: {
+      openingFloat: number; cashSales: number; drawerExpenses: number
+      expected: number; counted: number | null; variance: number | null
+    }
+    orderTypes: { type: string; count: number; total: number }[]
+    waiters: { name: string; orders: number; total: number }[]
+    discounts: { count: number; total: number }
+    voids: { count: number; total: number }
+    savedWithoutKot: number
+    vatCollected: number
+    invoiceRange: { from: number | null; to: number | null; count: number }
+  }
+}
+
 export interface TestPayload {
   printerName: string
   ip: string
@@ -171,6 +198,69 @@ export function renderTest(p: TestPayload, widthMm: number): Buffer {
   return r.cut().toBuffer()
 }
 
+/**
+ * Z-report. The screen and the paper the owner judges you on, so it carries
+ * everything an auditor or a suspicious owner asks for — including the invoice
+ * range and what was saved without a KOT.
+ */
+export function renderZReport(p: ZReportPayload, widthMm: number): Buffer {
+  const cols = colsFor(widthMm)
+  const r = new Receipt(cols)
+  const m = (v: number) => formatMoney(v, p.currencyDecimals)
+  const when = (d: string | Date | null) =>
+    d ? new Date(d).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '-'
+  const z = p.report
+
+  r.center(p.businessName, true)
+  r.big('Z-REPORT')
+  r.rule('=')
+  r.kv('Counter', z.counterName)
+  r.kv('Cashier', z.cashierName)
+  r.kv('Opened', when(z.openedAt))
+  r.kv('Closed', when(z.closedAt))
+  r.rule('=')
+
+  r.line('SALES BY PAYMENT MODE')
+  for (const pm of z.paymentModes) r.kv(`  ${pm.name} (${pm.count})`, m(pm.total))
+  r.rule('-')
+  r.kv('  TOTAL', m(z.grandTotal), true)
+  r.line()
+
+  r.line('CASH RECONCILIATION')
+  r.kv('  Opening float', m(z.cash.openingFloat))
+  r.kv('  + Cash sales', m(z.cash.cashSales))
+  r.kv('  - Expenses from drawer', m(z.cash.drawerExpenses))
+  r.rule('-')
+  r.kv('  Expected in drawer', m(z.cash.expected), true)
+  r.kv('  Counted', z.cash.counted == null ? '-' : m(z.cash.counted))
+  r.kv('  VARIANCE', z.cash.variance == null ? '-' : m(z.cash.variance), true)
+  r.line()
+
+  r.line('SALES BY ORDER TYPE')
+  for (const t of z.orderTypes) r.kv(`  ${t.type} (${t.count})`, m(t.total))
+  r.line()
+
+  if (z.waiters.length) {
+    r.line('SALES BY WAITER')
+    for (const w of z.waiters) r.kv(`  ${w.name} (${w.orders})`, m(w.total))
+    r.line()
+  }
+
+  r.rule('=')
+  r.kv(`Discounts (${z.discounts.count})`, m(z.discounts.total))
+  r.kv(`Voids (${z.voids.count})`, m(z.voids.total))
+  r.kv('Saved without KOT', String(z.savedWithoutKot))
+  r.kv(`${p.taxName} collected`, m(z.vatCollected))
+  r.kv(
+    'Invoices',
+    z.invoiceRange.from == null
+      ? 'none'
+      : `${p.invoicePrefix}${z.invoiceRange.from} - ${p.invoicePrefix}${z.invoiceRange.to}`,
+  )
+  r.rule('=')
+  return r.cut().toBuffer()
+}
+
 /** Dispatch used by the print queue. */
 export function renderJob(kind: string, payload: unknown, widthMm: number): Buffer {
   switch (kind) {
@@ -180,6 +270,8 @@ export function renderJob(kind: string, payload: unknown, widthMm: number): Buff
     case 'bill':
     case 'invoice':
       return renderBill(payload as BillPayload, widthMm)
+    case 'report':
+      return renderZReport(payload as ZReportPayload, widthMm)
     case 'test':
       return renderTest(payload as TestPayload, widthMm)
     default:

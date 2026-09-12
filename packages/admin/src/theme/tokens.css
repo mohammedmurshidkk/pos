@@ -1,0 +1,90 @@
+/**
+ * Admin theme — LIGHT, from docs/02-design-system.md.
+ *
+ * The cashier PC does long data entry and dense reports; the waiter tablet is
+ * dark because it lives in a dim dining room. Same tokens, different default.
+ */
+:root {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface-alt: #f8fafc;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-subtle: #eef2ff;
+  --on-primary: #ffffff;
+
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+  --info: #0ea5e9;
+
+  --dine-in: #4f46e5;
+  --takeaway: #f59e0b;
+  --car: #06b6d4;
+  --delivery: #8b5cf6;
+
+  --r-input: 6px;
+  --r-button: 10px;
+  --r-card: 12px;
+  --r-modal: 16px;
+
+  --row-h: 44px;
+  --control-h: 40px;
+  --action-h: 44px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 15px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* POS screens are commonly 1366x768 — never assume more. */
+  min-width: 1024px;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h1 { font-size: 24px; }
+h2 { font-size: 18px; }
+
+button, input, select { font: inherit; color: inherit; }
+
+/**
+ * Money is always tabular and right-aligned. Without tabular figures a column
+ * of prices jitters as digits change width, which reads as broken software.
+ */
+.money {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+.money--total { font-size: 28px; font-weight: 700; }
+.money--neg { color: var(--danger); }
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+
+/* Borders over shadows — cheap POS panels turn shadows into grey mud. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}

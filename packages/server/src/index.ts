@@ -4,19 +4,51 @@ import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import { newId, schema } from '@pos/shared'
 import { db, migrateDb } from './db.js'
-import { AppError, notFound } from './errors.js'
+import { AppError, conflict, notFound } from './errors.js'
 import { pingPrinter } from './printer.js'
 import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
-import { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setWaiter } from './services/orders.js'
+import { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
+import { createExpense, listExpenses } from './services/expenses.js'
+import {
+  MASTERS, bulkTables, createMaster, deactivateMaster, listMaster, updateMaster, updateSettings,
+} from './services/masters.js'
+import {
+  categoryWise, discountsAndVoids, employeeWise, itemWise, orderTypeWise,
+  paymentModeWise, resolveRange, salesSummary, taxSummary, toCsv, type RangePreset,
+} from './services/reports.js'
+import { closeShift, openShift, openShiftIdFor, zReport } from './services/shifts.js'
 import { removeUnsentLine, voidLine, voidOrder } from './services/voids.js'
 
 const s = schema
-migrateDb()
 
-const app = Fastify({ logger: { transport: { target: 'pino-pretty' } } })
+/**
+ * Build the hub server without starting it.
+ *
+ * Electron imports this and runs it in-process, so nothing here may execute on
+ * import — the desktop shell needs to set the database path first.
+ */
+export async function createServer(opts: { pretty?: boolean } = {}) {
+const app = Fastify({
+  logger: opts.pretty === false ? true : { transport: { target: 'pino-pretty' } },
+})
 await app.register(cors, { origin: true })
 await app.register(websocket)
+
+/**
+ * A body-less DELETE that still carries `content-type: application/json` is
+ * ordinary browser behaviour, but Fastify's default parser rejects the empty
+ * body with a 500 — which swallowed the guard message behind a generic error.
+ */
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  const text = String(body ?? '').trim()
+  if (text === '') return done(null, undefined)
+  try {
+    done(null, JSON.parse(text))
+  } catch {
+    done(conflict('The request body was not valid JSON.'), undefined)
+  }
+})
 
 /**
  * Known errors reach the tablet as actionable 4xx with a stable code.
@@ -67,6 +99,9 @@ app.get('/api/bootstrap', async () => ({
     .from(s.employees).where(eq(s.employees.active, true)).all(),
   counters: db.select().from(s.counters).where(eq(s.counters.active, true)).all(),
   paymentModes: db.select().from(s.paymentModes).where(eq(s.paymentModes.active, true)).all(),
+  modifierGroups: db.select().from(s.modifierGroups).where(eq(s.modifierGroups.active, true)).all(),
+  modifiers: db.select().from(s.modifiers).where(eq(s.modifiers.active, true)).all(),
+  itemModifierGroups: db.select().from(s.itemModifierGroups).all(),
 }))
 
 /* ───────────────────────────── orders ───────────────────────────── */
@@ -109,10 +144,25 @@ app.post('/api/orders/:id/send', async (req) => {
   return result
 })
 
+/** One idempotent call: create + add lines + send. What the tablet queues. */
+app.post('/api/orders/submit', async (req) => {
+  const result = submitOrder(req.body as Parameters<typeof submitOrder>[0])
+  if (!result.duplicate) broadcast('order.sent', { orderId: result.order?.id })
+  return result
+})
+
 app.post('/api/orders/:id/waiter', async (req) => {
   const { id } = req.params as { id: string }
   const { waiterId, employeeId } = req.body as { waiterId: string; employeeId: string }
   const order = setWaiter(id, waiterId, employeeId)
+  broadcast('order.updated', { orderId: id })
+  return order
+})
+
+app.post('/api/orders/:id/table', async (req) => {
+  const { id } = req.params as { id: string }
+  const { tableId, employeeId } = req.body as { tableId: string | null; employeeId: string }
+  const order = setTable(id, tableId, employeeId)
   broadcast('order.updated', { orderId: id })
   return order
 })
@@ -161,6 +211,143 @@ app.post('/api/orders/:id/void', async (req) => {
   return result
 })
 
+/* ───────────────────────────── shifts ───────────────────────────── */
+
+app.get('/api/shifts/current', async (req) => {
+  const { counterId } = req.query as { counterId: string }
+  const id = openShiftIdFor(counterId)
+  return { shiftId: id, open: id != null }
+})
+
+app.post('/api/shifts/open', async (req) => {
+  const shift = openShift(req.body as Parameters<typeof openShift>[0])
+  broadcast('shift.opened', { shiftId: shift.id })
+  return shift
+})
+
+/** Preview before closing — the cashier counts against this. */
+app.get('/api/shifts/:id/z-report', async (req) => zReport((req.params as { id: string }).id))
+
+app.post('/api/shifts/:id/close', async (req) => {
+  const { id } = req.params as { id: string }
+  const { countedCash, employeeId, backupDir } = req.body as {
+    countedCash: number; employeeId: string; backupDir?: string
+  }
+  const result = closeShift(id, countedCash, employeeId, backupDir ?? process.env.POS_BACKUP_DIR)
+  broadcast('shift.closed', { shiftId: id })
+  return result
+})
+
+/* ───────────────────────────── expenses ───────────────────────────── */
+
+app.get('/api/expenses', async () => listExpenses())
+
+app.post('/api/expenses', async (req) => {
+  const expense = createExpense(req.body as Parameters<typeof createExpense>[0])
+  broadcast('expense.created', { id: expense.id })
+  return expense
+})
+
+/* ───────────────────────────── masters ───────────────────────────── */
+
+/**
+ * One generic surface for twelve masters. Every write carries `employeeId` so
+ * the audit log can answer "who changed the price of this?".
+ */
+app.get('/api/masters', async () => ({ entities: Object.keys(MASTERS) }))
+
+app.get('/api/masters/:entity', async (req) =>
+  listMaster((req.params as { entity: string }).entity))
+
+app.post('/api/masters/:entity', async (req) => {
+  const { entity } = req.params as { entity: string }
+  const { employeeId, ...body } = req.body as Record<string, unknown> & { employeeId: string }
+  const row = createMaster(entity, body, employeeId)
+  broadcast('master.changed', { entity })
+  return row
+})
+
+app.patch('/api/masters/:entity/:id', async (req) => {
+  const { entity, id } = req.params as { entity: string; id: string }
+  const { employeeId, ...body } = req.body as Record<string, unknown> & { employeeId: string }
+  const row = updateMaster(entity, id, body, employeeId)
+  broadcast('master.changed', { entity })
+  return row
+})
+
+app.delete('/api/masters/:entity/:id', async (req) => {
+  const { entity, id } = req.params as { entity: string; id: string }
+  const { employeeId } = (req.query ?? {}) as { employeeId: string }
+  const result = deactivateMaster(entity, id, employeeId)
+  broadcast('master.changed', { entity })
+  return result
+})
+
+app.post('/api/masters/tables/bulk', async (req) => {
+  const { employeeId, ...body } = req.body as Parameters<typeof bulkTables>[0] & { employeeId: string }
+  const result = bulkTables(body, employeeId)
+  broadcast('master.changed', { entity: 'tables' })
+  return result
+})
+
+app.patch('/api/settings', async (req) => {
+  const { employeeId, ...body } = req.body as Record<string, unknown> & { employeeId: string }
+  const row = updateSettings(body, employeeId)
+  broadcast('settings.changed', {})
+  return row
+})
+
+/* ───────────────────────────── reports ───────────────────────────── */
+
+/** Money columns per report, so CSV exports decimals a spreadsheet can sum. */
+const MONEY_KEYS: Record<string, string[]> = {
+  summary: ['grossSales', 'discounts', 'serviceCharge', 'net', 'tax', 'total', 'averageTicket'],
+  items: ['gross'],
+  categories: ['gross'],
+  employees: ['total', 'averageTicket'],
+  'payment-modes': ['total'],
+  'order-types': ['total'],
+  tax: ['net', 'tax', 'total'],
+}
+
+const REPORTS = {
+  summary: salesSummary,
+  items: itemWise,
+  categories: categoryWise,
+  employees: employeeWise,
+  'payment-modes': paymentModeWise,
+  'order-types': orderTypeWise,
+  'discounts-voids': discountsAndVoids,
+  tax: taxSummary,
+} as const
+
+app.get('/api/reports/:kind', async (req, reply) => {
+  const { kind } = req.params as { kind: keyof typeof REPORTS }
+  const q = req.query as { preset?: RangePreset; from?: string; to?: string; format?: string }
+  const fn = REPORTS[kind]
+  if (!fn) throw notFound(`report '${kind}'`)
+
+  const range = resolveRange({ preset: q.preset ?? 'today', from: q.from, to: q.to })
+  const data = fn(range)
+
+  if (q.format !== 'csv') return { range: { ...range, label: range.label }, data }
+
+  const cfg = db.select().from(s.settings).where(eq(s.settings.id, 'singleton')).get()!
+  // Drop nested duplicates that only exist for the JSON consumers.
+  const flat = (r: Record<string, unknown>) => {
+    const { invoiceRange: _drop, range: _range, ...rest } = r
+    return rest
+  }
+  const rows = (Array.isArray(data) ? data : [data as Record<string, unknown>]).map((r) =>
+    flat(r as Record<string, unknown>),
+  )
+  const csv = toCsv(rows, MONEY_KEYS[kind] ?? [], cfg.currencyDecimals)
+  return reply
+    .header('content-type', 'text/csv; charset=utf-8')
+    .header('content-disposition', `attachment; filename="${kind}-${range.from.toISOString().slice(0, 10)}.csv"`)
+    .send(csv)
+})
+
 /* ───────────────────────────── printers ───────────────────────────── */
 
 app.get('/api/printers', async () => {
@@ -190,8 +377,20 @@ app.post('/api/print-jobs/retry', async (req) => {
   return { retried: await printQueue.retryFailed(printerId) }
 })
 
-const port = Number(process.env.PORT ?? 4000)
-await app.listen({ port, host: '0.0.0.0' })
+  return app
+}
 
-// Anything left pending from a crash, or a printer that was off overnight.
-await printQueue.kickAll()
+/**
+ * Start the hub. Binds 0.0.0.0 so tablets on the shop wifi can reach it —
+ * which is also why Windows shows a firewall prompt on first run.
+ */
+export async function startServer(opts: { port?: number; pretty?: boolean } = {}) {
+  migrateDb()
+  const app = await createServer(opts)
+  const port = opts.port ?? Number(process.env.PORT ?? 4000)
+  await app.listen({ port, host: '0.0.0.0' })
+
+  // Anything left pending from a crash, or a printer that was off overnight.
+  await printQueue.kickAll()
+  return { app, port }
+}

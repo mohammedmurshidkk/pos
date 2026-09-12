@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Al Manzil POS",
+    "slug": "restaurant-pos",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "posapp",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B1220",
+    "android": {
+      "package": "com.almanzil.pos",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing code shown on the counter PC."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4ffed91e-18bd-4ed7-be5b-b670d41c2741"
+      }
+    }
+  }
+}

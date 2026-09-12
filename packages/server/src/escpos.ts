@@ -28,6 +28,29 @@ export const CMD = {
 /** 80mm ≈ 48 chars, 58mm ≈ 32. Comes from the printer master, never guessed. */
 export const colsFor = (widthMm: number): number => (widthMm >= 80 ? 48 : 32)
 
+/**
+ * Make a string safe for an ESC/POS printer.
+ *
+ * The output is written as latin1, so any multi-byte character is truncated to
+ * a stray control byte. That silently ate the minus sign on the Z-report's
+ * variance line (formatMoney uses U+2212 so figures align on screen), and would
+ * mangle any accented menu item — "Crème Brûlée" is not hypothetical.
+ *
+ * So: fold typographic punctuation to ASCII, strip accents, and replace
+ * anything still unprintable with '?' rather than emitting a control byte.
+ */
+export function toPrintable(text: string): string {
+  return text
+    .replace(/[\u2212\u2012\u2013\u2014]/g, '-')   // minus, figure/en/em dash
+    .replace(/[\u2018\u2019\u201b]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/\u2026/g, '...')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')                // combining accents
+    .replace(/[^\x00-\x7f]+/g, '?')   // a run (incl. surrogate pairs) is one '?'
+}
+
 export class Receipt {
   private out: string[] = []
   constructor(private readonly cols: number) {
@@ -119,6 +142,6 @@ export class Receipt {
   }
 
   toBuffer(): Buffer {
-    return Buffer.from(this.out.join(''), 'binary')
+    return Buffer.from(toPrintable(this.out.join('')), 'binary')
   }
 }

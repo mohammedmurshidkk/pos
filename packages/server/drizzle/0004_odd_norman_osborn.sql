@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `business_day_start_hour` integer DEFAULT 0 NOT NULL;

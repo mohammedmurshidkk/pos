@@ -6,6 +6,7 @@ import { conflict, forbidden, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { BillPayload } from '../templates.js'
 import { recalculate } from './orders.js'
+import { openShiftIdFor } from './shifts.js'
 
 const s = schema
 const stamp = () => new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
@@ -192,7 +193,12 @@ export function settle(
   recalculate(orderId)
   const current = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!
 
+  // Attach to whichever shift is open on this counter, so the Z-report adds up
+  // without the client having to track shift ids.
+  const shiftId = input.shiftId ?? openShiftIdFor(input.counterId)
+
   let openedDrawer = false
+  let tendered = 0
   raw.transaction(() => {
     if (current.invoiceNo == null) {
       db.update(s.orders).set({
@@ -201,15 +207,27 @@ export function settle(
       }).where(eq(s.orders.id, orderId)).run()
     }
 
+    let remaining = current.total - paidSoFar(orderId)
+
     for (const p of input.payments) {
       const mode = db.select().from(s.paymentModes).where(eq(s.paymentModes.id, p.paymentModeId)).get()
       if (!mode) throw notFound('payment mode')
       if (mode.requiresRef && !p.refNo) throw conflict(`${mode.name} needs an approval or reference number.`)
+      if (p.amount <= 0) throw conflict('Payment amount must be positive.')
       if (mode.opensCashDrawer) openedDrawer = true
+
+      tendered += p.amount
+      // Record what actually settles the bill, not what was handed over. The
+      // drawer gains tendered minus change, so storing the tendered amount
+      // would inflate cash sales on the Z-report by every coin of change given.
+      const applied = Math.max(0, Math.min(p.amount, remaining))
+      remaining -= applied
+      if (applied === 0) continue
+
       db.insert(s.payments).values({
-        id: newId(), orderId, paymentModeId: mode.id, amount: p.amount,
+        id: newId(), orderId, paymentModeId: mode.id, amount: applied,
         refNo: p.refNo ?? null, counterId: input.counterId,
-        shiftId: input.shiftId ?? null, createdBy: input.employeeId,
+        shiftId, createdBy: input.employeeId,
       }).run()
     }
   })()
@@ -224,7 +242,7 @@ export function settle(
     status: 'settled',
     settledAt: new Date(),
     counterId: input.counterId,
-    shiftId: input.shiftId ?? null,
+    shiftId,
   }).where(eq(s.orders.id, orderId)).run()
 
   const paymentRows = db
@@ -243,7 +261,7 @@ export function settle(
 
   const fresh = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!
   audit(input.employeeId, 'order.settle', 'order', orderId, { invoiceNo: fresh.invoiceNo, paid })
-  return { settled: true, paid, changeDue: paid - current.total, invoiceNo: fresh.invoiceNo }
+  return { settled: true, paid, changeDue: Math.max(0, tendered - current.total), invoiceNo: fresh.invoiceNo }
 }
 
 /** Bill-level discount. Gated on the employee's permission and their cap. */

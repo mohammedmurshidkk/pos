@@ -10,7 +10,7 @@ process.env.POS_PRINT_DISABLED = '1'
 const { db, migrateDb } = await import('../db.js')
 const { seed } = await import('../seed.js')
 const { schema } = await import('@pos/shared')
-const { addItems, createOrder, getOrder, sendToKitchen, setWaiter } = await import('../services/orders.js')
+const { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } = await import('../services/orders.js')
 const { applyDiscount, printBill, settle } = await import('../services/billing.js')
 const { voidLine, voidOrder, removeUnsentLine } = await import('../services/voids.js')
 const { eq } = await import('drizzle-orm')
@@ -228,6 +228,79 @@ describe('discounts', () => {
     expect(r.discountAmount).toBe(850) // 10% of 85.00
     const log = db.select().from(s.auditLog).where(eq(s.auditLog.entityId, id)).all()
     expect(log.some((l) => l.action === 'order.discount')).toBe(true)
+  })
+})
+
+describe('submit (offline-safe)', () => {
+  const payload = (batchRef: string) => ({
+    batchRef,
+    type: 'takeaway' as const,
+    lines: [{ itemId: ids.alfaham!, qty: 1 }],
+    employeeId: ids.rahul!,
+  })
+
+  it('creates, adds lines and sends in one call', () => {
+    const r = submitOrder(payload('batch-1'))
+    expect(r.duplicate).toBe(false)
+    expect(r.order!.lines).toHaveLength(1)
+    expect(r.order!.lines[0]!.status).toBe('sent')
+    expect(r.result!.tickets.length).toBeGreaterThan(0)
+  })
+
+  it('is idempotent — a replayed batch does not double the order', () => {
+    // Exactly the case where the tablet sent successfully but lost the reply.
+    const first = submitOrder(payload('batch-2'))
+    const ticketsBefore = db.select().from(s.kotTickets).all().length
+
+    const retry = submitOrder(payload('batch-2'))
+    expect(retry.duplicate).toBe(true)
+    expect(retry.order!.id).toBe(first.order!.id)
+    expect(retry.order!.lines).toHaveLength(1)
+    expect(db.select().from(s.kotTickets).all().length).toBe(ticketsBefore)
+  })
+
+  it('adds an add-on round to an existing order', () => {
+    const first = submitOrder(payload('batch-3'))
+    const second = submitOrder({
+      ...payload('batch-4'),
+      orderId: first.order!.id,
+      lines: [{ itemId: ids.juice!, qty: 2 }],
+    })
+    expect(second.order!.id).toBe(first.order!.id)
+    expect(second.order!.lines).toHaveLength(2)
+    expect(second.result!.kind).toBe('addon')
+  })
+})
+
+describe('change table', () => {
+  it('moves a dine-in order and records who did it', () => {
+    const table = db.select().from(s.tables).all()[0]!
+    const o = createOrder({ type: 'dine_in', createdBy: ids.rahul! })!
+    const moved = setTable(o.id, table.id, ids.fatima!)
+    expect(moved!.tableId).toBe(table.id)
+
+    const log = db.select().from(s.auditLog).where(eq(s.auditLog.entityId, o.id)).all()
+    expect(log.some((l) => l.action === 'order.change_table')).toBe(true)
+  })
+
+  it('refuses for a takeaway order', () => {
+    const table = db.select().from(s.tables).all()[0]!
+    const o = createOrder({ type: 'takeaway', createdBy: ids.rahul! })!
+    expect(() => setTable(o.id, table.id, ids.fatima!)).toThrow(/dine-in/i)
+  })
+})
+
+describe('open orders list', () => {
+  it('includes lines — the tablet shows an item count from them', () => {
+    const id = openOrder([{ itemId: ids.alfaham!, qty: 1 }, { itemId: ids.juice!, qty: 2 }])
+    const row = listOpenOrders().find((o) => o.id === id)
+    expect(row).toBeDefined()
+    expect(row!.lines).toHaveLength(2)
+    expect(row!.lines[0]!.nameSnapshot).toBeTruthy()
+  })
+
+  it('returns an empty array when nothing is open', () => {
+    expect(Array.isArray(listOpenOrders())).toBe(true)
   })
 })
 

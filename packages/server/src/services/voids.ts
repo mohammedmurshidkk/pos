@@ -100,7 +100,7 @@ export function voidLine(orderId: string, lineId: string, reason: string, employ
 
   raw.transaction(() => {
     db.update(s.orderItems)
-      .set({ status: 'void', voidReason: reason, voidedBy: employeeId })
+      .set({ status: 'void', voidReason: reason, voidedBy: employeeId, voidedAt: new Date() })
       .where(eq(s.orderItems.id, lineId))
       .run()
   })()
@@ -150,7 +150,7 @@ export function voidOrder(orderId: string, reason: string, employeeId: string) {
 
   raw.transaction(() => {
     db.update(s.orderItems)
-      .set({ status: 'void', voidReason: reason, voidedBy: employeeId })
+      .set({ status: 'void', voidReason: reason, voidedBy: employeeId, voidedAt: new Date() })
       .where(and(eq(s.orderItems.orderId, orderId), ne(s.orderItems.status, 'void')))
       .run()
     db.update(s.orders).set({ status: 'void' }).where(eq(s.orders.id, orderId)).run()

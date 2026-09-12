@@ -63,7 +63,7 @@ export function createOrder(input: {
   return getOrder(id)
 }
 
-export function addItems(orderId: string, lines: NewLine[], employeeId: string) {
+export function addItems(orderId: string, lines: NewLine[], employeeId: string, batchRef?: string) {
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled' || order.status === 'void') {
@@ -84,6 +84,7 @@ export function addItems(orderId: string, lines: NewLine[], employeeId: string) 
       modifiersJson: JSON.stringify(l.modifiers ?? []),
       note: l.note ?? null,
       status: 'new',
+      batchRef: batchRef ?? null,
       createdBy: employeeId,
     }).run()
   }
@@ -265,8 +266,35 @@ export function getOrder(orderId: string) {
   return { ...order, lines: lines.map((l) => ({ ...l, modifiers: JSON.parse(l.modifiersJson) })) }
 }
 
+/**
+ * Open orders WITH their lines.
+ *
+ * The tablet's order list shows an item count, so returning bare order rows
+ * made `order.lines` undefined on a client whose type said otherwise. One
+ * branch never has enough open orders for the extra rows to matter, and a
+ * single shape beats two that can drift apart.
+ */
 export function listOpenOrders() {
-  return db.select().from(s.orders).where(inArray(s.orders.status, ['open', 'billed'])).all()
+  const orders = db.select().from(s.orders).where(inArray(s.orders.status, ['open', 'billed'])).all()
+  if (orders.length === 0) return []
+
+  const lines = db
+    .select()
+    .from(s.orderItems)
+    .where(inArray(s.orderItems.orderId, orders.map((o) => o.id)))
+    .all()
+
+  const byOrder = new Map<string, typeof lines>()
+  for (const l of lines) {
+    const arr = byOrder.get(l.orderId) ?? []
+    arr.push(l)
+    byOrder.set(l.orderId, arr)
+  }
+
+  return orders.map((o) => ({
+    ...o,
+    lines: (byOrder.get(o.id) ?? []).map((l) => ({ ...l, modifiers: JSON.parse(l.modifiersJson) })),
+  }))
 }
 
 /** Admin reassigns service credit. `createdBy` is never touched. */
@@ -282,4 +310,80 @@ export function setWaiter(orderId: string, waiterId: string, employeeId: string)
     from: order.waiterId, to: waiterId, toName: waiter.name,
   })
   return getOrder(orderId)
+}
+
+/**
+ * Move an order to another table. Guests get moved constantly, so this is used
+ * far more than you would expect.
+ *
+ * The server allows any active table — two parties on one table is legitimate,
+ * and the tablet is what restricts the choice to free ones.
+ */
+export function setTable(orderId: string, tableId: string | null, employeeId: string) {
+  const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
+  if (!order) throw notFound('order')
+  if (order.status === 'settled' || order.status === 'void') throw conflict('Order is locked.')
+  if (order.type !== 'dine_in') throw conflict('Only a dine-in order sits at a table.')
+
+  let toName: string | null = null
+  if (tableId) {
+    const table = db.select().from(s.tables).where(eq(s.tables.id, tableId)).get()
+    if (!table || !table.active) throw notFound('table')
+    toName = table.name
+  }
+
+  db.update(s.orders).set({ tableId }).where(eq(s.orders.id, orderId)).run()
+  audit(employeeId, 'order.change_table', 'order', orderId, {
+    from: order.tableId, to: tableId, toName,
+  })
+  return getOrder(orderId)
+}
+
+/**
+ * Create (or extend) an order, add its lines and send them — in one call.
+ *
+ * The tablet queues exactly this payload when the counter is unreachable and
+ * replays it on reconnect. Because `batchRef` is client-generated and checked
+ * here first, a retry that arrives after a request actually succeeded is a
+ * no-op rather than a duplicate round to the kitchen.
+ */
+export function submitOrder(input: {
+  batchRef: string
+  orderId?: string | null
+  type: 'dine_in' | 'takeaway' | 'car' | 'delivery'
+  tableId?: string | null
+  ticketLabel?: string | null
+  vehicleNo?: string | null
+  bayNo?: string | null
+  phoneSnapshot?: string | null
+  addressSnapshot?: string | null
+  lines: NewLine[]
+  employeeId: string
+  suppressKot?: boolean
+}) {
+  const already = db
+    .select({ orderId: s.orderItems.orderId })
+    .from(s.orderItems)
+    .where(eq(s.orderItems.batchRef, input.batchRef))
+    .get()
+  if (already) {
+    return { order: getOrder(already.orderId), result: null, duplicate: true as const }
+  }
+
+  const orderId =
+    input.orderId ??
+    createOrder({
+      type: input.type,
+      tableId: input.tableId ?? null,
+      ticketLabel: input.ticketLabel ?? null,
+      vehicleNo: input.vehicleNo ?? null,
+      bayNo: input.bayNo ?? null,
+      phoneSnapshot: input.phoneSnapshot ?? null,
+      addressSnapshot: input.addressSnapshot ?? null,
+      createdBy: input.employeeId,
+    })!.id
+
+  addItems(orderId, input.lines, input.employeeId, input.batchRef)
+  const result = sendToKitchen(orderId, input.employeeId, input.suppressKot ?? false)
+  return { order: getOrder(orderId), result, duplicate: false as const }
 }

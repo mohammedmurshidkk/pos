@@ -1,0 +1,33 @@
+name: Windows installer
+
+# Cross-building a native module from macOS works but is easy to get subtly
+# wrong — the binary architecture has to be patched into every copy pnpm keeps.
+# On a Windows runner the module is simply built for the machine it runs on.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - name: Build native module for Electron
+        run: pnpm --filter @pos/desktop native:electron
+      - name: Build installer
+        run: pnpm --filter @pos/desktop exec electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: packages/desktop/release/*.exe
+          retention-days: 30

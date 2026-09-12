@@ -59,6 +59,32 @@ export function seed() {
     item(cDesserts, 'Umm Ali', 2800, 1),
   ]).run()
 
+  // Modifier groups — what a waiter actually needs at the table.
+  const gSpice = newId(), gAddons = newId()
+  db.insert(s.modifierGroups).values([
+    { id: gSpice, name: 'Spice Level', minSelect: 1, maxSelect: 1, sort: 1 },
+    { id: gAddons, name: 'Add-ons', minSelect: 0, maxSelect: 3, sort: 2 },
+  ]).run()
+
+  db.insert(s.modifiers).values([
+    { id: newId(), groupId: gSpice, name: 'Mild', priceDelta: 0, sort: 1 },
+    { id: newId(), groupId: gSpice, name: 'Medium', priceDelta: 0, sort: 2 },
+    { id: newId(), groupId: gSpice, name: 'Extra Hot', priceDelta: 0, sort: 3 },
+    { id: newId(), groupId: gAddons, name: 'Extra Mayo', priceDelta: 500, sort: 1 },
+    { id: newId(), groupId: gAddons, name: 'Garlic Sauce', priceDelta: 500, sort: 2 },
+    { id: newId(), groupId: gAddons, name: 'Pita Bread', priceDelta: 800, sort: 3 },
+  ]).run()
+
+  // Every alfaham takes both groups; juices and desserts take none.
+  const alfahamIds = db.select({ id: s.items.id }).from(s.items).all()
+    .filter((_, i) => i < 5)
+  db.insert(s.itemModifierGroups).values(
+    alfahamIds.flatMap((it) => [
+      { itemId: it.id, groupId: gSpice, sort: 1 },
+      { itemId: it.id, groupId: gAddons, sort: 2 },
+    ]),
+  ).run()
+
   const aGround = newId(), aFamily = newId(), aTerrace = newId()
   db.insert(s.areas).values([
     { id: aGround, name: 'Ground Floor', sort: 1 },
@@ -124,7 +150,7 @@ export function seed() {
     pairToken: 'local', defaultCounterId: counter1,
   }).run()
 
-  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 22 tables, 4 employees')
+  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 2 modifier groups, 22 tables, 4 employees')
 }
 
 // Only auto-run when invoked directly (`pnpm seed`), so tests can import it.

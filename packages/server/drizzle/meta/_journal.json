@@ -15,6 +15,34 @@
       "when": 1789148608644,
       "tag": "0001_blushing_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789149154800,
+      "tag": "0002_magical_jamie_braddock",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789149413775,
+      "tag": "0003_light_nebula",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789149847826,
+      "tag": "0004_odd_norman_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789158959329,
+      "tag": "0005_shocking_stature",
+      "breakpoints": true
     }
   ]
 }

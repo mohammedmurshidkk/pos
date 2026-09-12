@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 /**
@@ -13,8 +12,18 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
  */
 
 const id = () => text('id').primaryKey()
+/**
+ * Millisecond precision, supplied by the application.
+ *
+ * SQLite's `unixepoch()` truncates to whole seconds, so a row written in the
+ * same second a shift opens could sort BEFORE `opened_at` and vanish from the
+ * Z-report window. There is deliberately no SQL default: Drizzle skips the
+ * column entirely when one exists, and the truncated value wins.
+ */
 const createdAt = () =>
-  integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`)
+  integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date())
 const active = () => integer('active', { mode: 'boolean' }).notNull().default(true)
 const sort = () => integer('sort').notNull().default(0)
 
@@ -202,6 +211,13 @@ export const settings = sqliteTable('settings', {
   invoiceNextNo: integer('invoice_next_no').notNull().default(1),
   orderNextNo: integer('order_next_no').notNull().default(1),
 
+  /**
+   * Hour the business day rolls over, 0-23. A restaurant that closes at 02:00
+   * wants those sales on the previous day's report — with 0 the owner sees two
+   * wrong days instead of one right one.
+   */
+  businessDayStartHour: integer('business_day_start_hour').notNull().default(0),
+
   defaultKitchenId: text('default_kitchen_id').references(() => kitchens.id),
   /** Dormant seam. When true the tablet picker demands a PIN. Not built in MVP. */
   requirePinOnAction: integer('require_pin_on_action', { mode: 'boolean' }).notNull().default(false),
@@ -325,6 +341,15 @@ export const orderItems = sqliteTable(
     kotSuppressed: integer('kot_suppressed', { mode: 'boolean' }).notNull().default(false),
     voidReason: text('void_reason'),
     voidedBy: text('voided_by').references(() => employees.id),
+    /** Needed to attribute a void to the shift it happened in. */
+    voidedAt: integer('voided_at', { mode: 'timestamp_ms' }),
+    /**
+     * Client-generated id for the batch these lines arrived in. A tablet that
+     * retries a queued send replays the same ref, and the hub recognises it
+     * instead of duplicating the round — which is what makes offline-then-retry
+     * safe rather than a source of double orders.
+     */
+    batchRef: text('batch_ref'),
     /** Whoever sent this batch — may differ from the order's waiter. */
     createdBy: text('created_by').notNull().references(() => employees.id),
     createdAt: createdAt(),
@@ -332,6 +357,7 @@ export const orderItems = sqliteTable(
   (t) => ({
     byOrder: index('order_items_order_idx').on(t.orderId),
     byStatus: index('order_items_status_idx').on(t.status),
+    byBatch: index('order_items_batch_idx').on(t.batchRef),
   }),
 )
 

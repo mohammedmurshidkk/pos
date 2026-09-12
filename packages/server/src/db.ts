@@ -33,8 +33,12 @@ export const raw: Sqlite = sqlite
  * hand-written CREATE TABLE would drift from the Drizzle schema within a week.
  */
 export function migrateDb(): void {
-  const here = path.dirname(fileURLToPath(import.meta.url))
-  migrate(db, { migrationsFolder: path.join(here, '..', 'drizzle') })
+  // Once bundled into the Electron app this file no longer sits in src/, so the
+  // relative walk is wrong. The shell passes the packaged location explicitly.
+  const folder =
+    process.env.POS_MIGRATIONS ??
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'drizzle')
+  migrate(db, { migrationsFolder: folder })
 }
 
 /** Shift-close backup. ~30 lines that stand between the client and ruin. */
