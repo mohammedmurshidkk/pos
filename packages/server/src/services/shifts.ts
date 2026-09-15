@@ -5,6 +5,9 @@ import { backupTo, db, raw } from '../db.js'
 import { conflict, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { ZReportPayload } from '../templates.js'
+import { requireCounter } from './counters.js'
+import { requireEmployee } from './employees.js'
+import { assertLicensed } from './licence.js'
 
 const s = schema
 
@@ -19,6 +22,9 @@ export function openShiftIdFor(counterId: string): string | null {
 }
 
 export function openShift(input: { counterId: string; employeeId: string; openingFloat: number }) {
+  requireEmployee(input.employeeId)
+  requireCounter(input.counterId)
+  assertLicensed('open shift')
   if (openShiftIdFor(input.counterId)) {
     throw conflict('A shift is already open on this counter. Close it first.')
   }
@@ -197,6 +203,7 @@ export function zReport(shiftId: string, countedCash?: number | null): ZReport {
  * business, and shift close is the natural moment to snapshot it.
  */
 export function closeShift(shiftId: string, countedCash: number, employeeId: string, backupDir?: string) {
+  requireEmployee(employeeId)
   const shift = db.select().from(s.shifts).where(eq(s.shifts.id, shiftId)).get()
   if (!shift) throw notFound('shift')
   if (shift.closedAt) throw conflict('This shift is already closed.')

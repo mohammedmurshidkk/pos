@@ -17,6 +17,8 @@ export interface Item { id: string; categoryId: string; name: string; price: num
 export interface Employee {
   id: string; name: string; role: 'admin' | 'waiter'
   canSaveWithoutKot: boolean; canDiscount: boolean
+  /** Whether a PIN is set — the hash itself never leaves the hub. */
+  hasPin?: boolean
 }
 export interface Counter { id: string; name: string }
 export interface PaymentMode {
@@ -33,6 +35,29 @@ export interface Bootstrap {
   employees: Employee[]
   counters: Counter[]
   paymentModes: PaymentMode[]
+  licence?: { state: LicenceState; plan: 'trial' | 'paid'; daysLeft: number; warning: boolean; expiresAt: string }
+}
+
+export type LicenceState = 'trial' | 'active' | 'expired'
+
+export interface LicenceStatus {
+  state: LicenceState
+  plan: 'trial' | 'paid'
+  customer: string | null
+  installId: string
+  expiresAt: string
+  daysLeft: number
+  warning: boolean
+  clockRolledBack: boolean
+}
+
+export interface Device {
+  id: string
+  name: string
+  type: string
+  lastSeen: string | null
+  active: boolean
+  createdAt: string
 }
 
 export interface OrderLine {

@@ -1,8 +1,8 @@
 import Constants from 'expo-constants'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native'
-import { api, setBaseUrl } from '../src/api/client'
+import { ApiError, OfflineError, api } from '../src/api/client'
 import { Banner } from '../src/components/Banner'
 import { Button } from '../src/components/Button'
 import { Screen } from '../src/components/Screen'
@@ -41,26 +41,40 @@ export default function Pair() {
   const router = useRouter()
   const pair = useDevice((s) => s.pair)
   const loadCatalog = useCatalog((s) => s.load)
+  const { reason } = useLocalSearchParams<{ reason?: string }>()
   const [ip, setIp] = useState(devHostGuess())
   const [port, setPort] = useState('4000')
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const connect = async () => {
-    setBusy(true)
     setError(null)
-    const url = `http://${ip.trim()}:${port.trim()}`
-    const reachable = await api.ping(url)
-    if (!reachable) {
-      setBusy(false)
-      setError(`No answer from ${url}. Check the tablet is on the shop wifi and the counter PC is running.`)
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError('Enter the 6-digit code shown on the counter PC under Devices.')
       return
     }
-    setBaseUrl(url)
-    await pair(url)
-    try { await loadCatalog() } catch { /* Home will retry and show the error */ }
-    setBusy(false)
-    router.replace('/home')
+    setBusy(true)
+    const url = `http://${ip.trim()}:${port.trim()}`
+    try {
+      if (!(await api.health(url))) {
+        setError(`No answer from ${url}. Check the tablet is on the shop wifi and the counter PC is running.`)
+        return
+      }
+      const device = await api.pairDevice(url, code.trim(), name.trim())
+      await pair(url, device)
+      try { await loadCatalog() } catch { /* Home will retry and show the error */ }
+      router.replace('/home')
+    } catch (e) {
+      setError(
+        e instanceof OfflineError ? `No answer from ${url}.`
+        : e instanceof ApiError ? e.message
+        : 'Pairing failed.',
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -69,9 +83,12 @@ export default function Pair() {
         <View style={styles.card}>
           <Text variant="title">Pair this Tablet</Text>
           <Text variant="body" muted>
-            Enter the address shown on the counter PC, under Device Pairing.
+            On the counter PC open Devices → Pair a tablet, then enter the address and code it shows.
           </Text>
 
+          {reason === 'unpaired' && !error ? (
+            <Banner tone="warning" message="This tablet was unpaired from the counter. Pair it again to keep taking orders." />
+          ) : null}
           {error ? <Banner tone="danger" message={error} /> : null}
 
           <View style={styles.row}>
@@ -98,6 +115,30 @@ export default function Pair() {
             </View>
           </View>
 
+          <View style={styles.row}>
+            <View style={styles.fieldNarrow}>
+              <Text variant="label" muted>Pairing code</Text>
+              <TextInput
+                value={code}
+                onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
+                keyboardType="number-pad"
+                placeholder="000000"
+                style={[styles.input, styles.code]}
+                placeholderTextColor={color.textFaint}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text variant="label" muted>Name this tablet</Text>
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="Tablet 1"
+                style={styles.input}
+                placeholderTextColor={color.textFaint}
+              />
+            </View>
+          </View>
+
           {__DEV__ ? (
             <View style={styles.chips}>
               {[metroHost(), '127.0.0.1', '10.0.2.2'].filter((h): h is string => !!h).map((h) => (
@@ -110,7 +151,7 @@ export default function Pair() {
 
           <Button label={busy ? 'Connecting…' : 'Connect'} loading={busy} onPress={connect} />
           <Text variant="caption" faint style={styles.hint}>
-            Ask your manager if you do not have the address.
+            The code works once and expires after ten minutes.
           </Text>
         </View>
       </View>
@@ -137,6 +178,7 @@ const styles = StyleSheet.create({
     color: color.text, fontSize: 17,
   },
   hint: { textAlign: 'center' },
+  code: { fontSize: 24, letterSpacing: 6, textAlign: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: {
     minHeight: 44, justifyContent: 'center', paddingHorizontal: space.md,

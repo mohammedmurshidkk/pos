@@ -17,6 +17,18 @@ let baseUrl: string | null = null
 export const setBaseUrl = (url: string | null) => { baseUrl = url }
 export const getBaseUrl = () => baseUrl
 
+/** Issued once at pairing; the hub rejects every order call without it. */
+let deviceToken: string | null = null
+export const setDeviceToken = (token: string | null) => { deviceToken = token }
+
+/**
+ * Called when the hub says this tablet is no longer paired — revoked from the
+ * counter, or a database restored without it. The root layout sends the user
+ * back to the pairing screen rather than failing every tap with an error.
+ */
+let onUnpaired: (() => void) | null = null
+export const setOnUnpaired = (fn: (() => void) | null) => { onUnpaired = fn }
+
 /**
  * Every call goes through here.
  *
@@ -24,6 +36,15 @@ export const getBaseUrl = () => baseUrl
  * find out immediately that the counter is unreachable, not stare at a spinner
  * while the table waits.
  */
+function buildHeaders(init?: RequestInit): Record<string, string> {
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
+  // Only declare JSON when we actually send a body — a body-less DELETE with
+  // this header makes the server try to parse nothing.
+  if (init?.body) headers['content-type'] = 'application/json'
+  if (deviceToken) headers['x-device-token'] = deviceToken
+  return headers
+}
+
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   if (!baseUrl) throw new OfflineError()
   const controller = new AbortController()
@@ -34,9 +55,7 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
     res = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: controller.signal,
-      // Only declare JSON when we actually send a body — a body-less DELETE
-      // with this header makes the server try to parse nothing.
-      headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
+      headers: buildHeaders(init),
     })
   } catch {
     throw new OfflineError()
@@ -52,6 +71,7 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
       message = body.message ?? message
       code = body.error ?? code
     } catch { /* non-JSON error body */ }
+    if (res.status === 401 && code === 'unpaired') onUnpaired?.()
     throw new ApiError(message, code, res.status)
   }
 
@@ -95,7 +115,28 @@ export const api = {
       `/api/orders/${orderId}/bill`, { employeeId, counterId },
     ),
 
-  /** Pairing check — short timeout so a wrong IP fails fast. */
-  ping: (url: string) =>
-    fetch(`${url}/api/bootstrap`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false),
+  /** Is anything answering at this address? Public, so it works before pairing. */
+  health: (url: string) =>
+    fetch(`${url}/api/health`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false),
+
+  /** Exchange the code shown on the counter PC for this tablet's token. */
+  pairDevice: async (url: string, code: string, name: string) => {
+    let res: Response
+    try {
+      res = await fetch(`${url}/api/devices/pair`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, name }),
+        signal: AbortSignal.timeout(6000),
+      })
+    } catch {
+      throw new OfflineError()
+    }
+    const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string }
+    if (!res.ok) throw new ApiError(body.message ?? 'Pairing failed.', body.error ?? 'unknown', res.status)
+    return body as unknown as { deviceId: string; name: string; token: string }
+  },
+
+  /** Confirms the stored token is still accepted. */
+  me: () => request<{ id: string; name: string } | null>('/api/devices/me'),
 }

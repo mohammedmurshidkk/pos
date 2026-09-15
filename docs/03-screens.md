@@ -9,10 +9,21 @@ Waiter = Expo Android, dark theme, 1280×800 landscape / 390×844 portrait.
 
 # A. Admin PC
 
-## A01 · Login — P0
-Employee picks their name, enters PIN. Admin can switch to username + password.
-- Tiles of active employees with initials avatar · 4-digit PIN pad (64px keys) · error shake on wrong PIN
-- **States:** default · wrong PIN · account inactive · license expiring banner
+## A01 · Counter sign-in — P0 · **built**
+Admin picks their tile and enters a 4-digit PIN.
+- Only **admins** appear — the counter settles money, discounts and voids, and each is stamped with whoever is signed in. Waiters use the tablet, which has no login at all.
+- An admin with no PIN set is shown dimmed and disabled, with the reason.
+- PIN submits on the fourth digit; the number keys work as well as the on-screen pad.
+- Five wrong PINs locks that employee out for 30 seconds. Failures are written to `audit_log`.
+- Session lives in `sessionStorage`: reloading the window does not sign the cashier out, closing the app does.
+- **States:** choosing · entering PIN · wrong PIN · locked out · no PIN set
+
+## A01b · Open the counter — P0 · **built**
+Shown straight after sign-in when no shift is open on this counter.
+- Counter selector (hidden when there is only one), opening float with quick amounts
+- Nothing can be settled until a shift is open — every payment and drawer expense is stamped with it, and that is what makes the Z-report reconcile
+- The chosen counter is remembered per machine in `localStorage`; a till never moves
+- **States:** default · no counter configured · hub unreachable
 
 ## A02 · Dashboard — P0
 The owner's 5-second answer to "how are we doing today?"
@@ -46,46 +57,21 @@ Area tabs → table grid, same visual language as the waiter app so support can 
 - Tile: table name, status colour + label, order count badge, elapsed, total
 - **States:** free · occupied · bill printed · multiple orders
 
-## A06 · Items — P0
-- Searchable table: name, category, price, availability toggle, sort
-- Bulk availability toggle (86'ing an item during service must be one tap)
-- Form: name, category, price, modifier groups, sort, active
-- **States:** list · empty · create · edit · validation error
-
-## A07 · Categories — P0
-List + form: name, **kitchen** (dropdown, this is the KOT routing), sort, active.
-- Show the resolved kitchen + printer IP inline so mistakes are visible: `Alfaham → Arabic Kitchen (192.168.1.15)`
-- Warn if a category has no kitchen: `Will print to default kitchen`
-
-## A08 · Modifiers — P1
-Modifier groups (name, min/max select) → modifiers (name, price delta). Assign groups to items.
-
-## A09 · Kitchens — P0
-List + form: name, printer, active. Shows category count using each kitchen.
+## A-SETUP · Setup (masters) — P0 · **built, replaces A06–A09 and A11–A15**
+One generic screen for twelve masters: printers, kitchens, counters, categories, items, modifier groups, modifiers, areas, tables, employees, payment modes, expense categories.
+- Entity list on the left, table on the right, edit in a modal driven by a field spec
+- Nine hand-written CRUD screens would be nine places to forget the audit stamp or a referential guard; adding a master is now a config entry in `packages/admin/src/masters/config.ts`
+- **Referential guards** refuse to disable something in use, with a sentence the admin can act on — "1 kitchen(s) still print to this printer"
+- Nothing is deleted, only deactivated — historical rows still reference these by id
+- Bulk add for tables (A1…A12)
+- Employees: setting a PIN here hashes it; the PIN never reaches the database or the audit log in the clear
+- **States:** list · empty · create · edit · guard refusal
 
 ## A10 · Printers — P0 · **support-critical**
 - List: name, IP:port, width, live status dot, pending job count
 - Row actions: **Test Print** · Edit · Disable
 - Form: name, IP, port (default 9100), paper width 58/80, enabled
 - **States:** online · offline · jobs pending · never tested
-
-## A11 · Counters — P0
-List + form: name, printer, active. This PC's own counter is set here and marked `THIS DEVICE`.
-
-## A12 · Payment modes — P0
-List + form: name, type (cash/card/wallet/credit/online), merchant name, terminal ID, requires ref, opens cash drawer, counts in cash closing, sort, active.
-- Example rows: `Cash` · `SBI Card` · `Canara Card`
-
-## A13 · Employees — P0
-List + form: name, role (admin/waiter), PIN, can discount, max discount %, **can save without KOT**, active.
-- Never display stored PINs. Reset only.
-- PIN is used by the **admin PC only** in MVP. The tablet picker does not ask for it — see the dormant `require_pin_on_action` seam in the spec.
-
-## A14 · Areas & tables — P0
-Areas list → tables under each. Table: name, seats, sort, active. Bulk add (`A1–A12`).
-
-## A15 · Expense categories — P1
-Simple list + form.
 
 ## A16 · Expenses — P0
 - List: date, category, amount, note, paid by, **paid from drawer** flag
@@ -115,9 +101,20 @@ Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of sp
 - Actions: Retry · Retry all for printer · Discard
 - Opened from the header printer strip
 
-## A22 · Device pairing — P0
-Full-screen **QR code** encoding `{ip, port, pair_token}`, plus the IP in large text as a manual fallback.
-- Paired devices list: name, type, last seen, default counter, Unpair
+## A22 · Devices (pairing) — P0 · **built**
+- **Pair a tablet** shows the hub's LAN address (and alternates, if the PC has several) with a large **6-digit code** and a live countdown
+- The code works once and expires in 10 minutes; the screen notices the new tablet and confirms it by name
+- Paired devices table: name, status, last seen, paired on, **Unpair** (with confirmation)
+- Unpairing is immediate; the tablet keeps its queued orders until paired again
+- **States:** idle · code showing · just paired · unpair confirm · no devices
+
+## A23 · Licence — P0 · **built**
+- Status card: *Free trial* / *Licensed to …* / *Trial ended* / *Licence expired*, with days left and end date
+- **Install ID** with Copy — what the shop sends the supplier
+- Paste a licence key → **Activate**; errors say exactly why (wrong installation, expired, not valid)
+- Warning banner if the PC clock has been set back
+- Header banner on every screen from 7 days before expiry; when expired the open-counter step is skipped so the cashier can still settle open orders and renew
+- **States:** trial · active · warning · expired · clock rolled back
 
 ---
 
@@ -125,10 +122,12 @@ Full-screen **QR code** encoding `{ip, port, pair_token}`, plus the IP in large 
 
 **No login. No session. No lock.** A paired tablet boots straight to Home. Identity is captured per action by the employee picker (W-EMP). The tablet cannot take payment and cannot void.
 
-## W01 · Pairing — P0
-Camera view, scan the QR from A22. Manual IP entry fallback. Connection test → success.
-- Support does this once during installation. A waiter should never see it.
-- **States:** scanning · connecting · failed (with a "check you're on the shop wifi" hint) · paired
+## W01 · Pairing — P0 · **built**
+Hub IP + port, a **6-digit pairing code** from the counter PC, and a name for the tablet.
+- Checks the hub answers (`/api/health`) before trying the code, so "wrong wifi" and "wrong code" read differently
+- Shows *"This tablet was unpaired from the counter"* when it arrives here after being revoked
+- QR scanning is still to do; typing the code takes seconds
+- **States:** default · hub not answering · wrong/expired code · locked out · unpaired
 
 ## W02 · Connection error — P0
 Shown when the device is paired but the hub is unreachable.

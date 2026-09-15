@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+/**
+ * Licence tooling — run by YOU (the vendor), never shipped to a shop.
+ *
+ *   node tools/licence.mjs keygen
+ *       Creates an Ed25519 keypair in ~/.almanzil-pos/. Prints the public key to
+ *       paste into packages/server/src/licence-public-key.ts. Refuses to overwrite.
+ *
+ *   node tools/licence.mjs sign --install <id> --customer "Al Manzil" --days 365 [--plan paid|trial]
+ *       Prints a licence key for one installation. The install id is shown on the
+ *       counter PC under Licence.
+ *
+ *   node tools/licence.mjs inspect <key>
+ *       Decodes a key without verifying it — for support calls.
+ *
+ * BACK UP ~/.almanzil-pos/licence-private.pem. Lose it and you cannot issue or
+ * renew a licence for any installed shop without shipping a new app build.
+ */
+import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+const DIR = process.env.POS_LICENCE_DIR ?? path.join(os.homedir(), '.almanzil-pos')
+const PRIVATE = path.join(DIR, 'licence-private.pem')
+const PUBLIC = path.join(DIR, 'licence-public.pem')
+
+const b64url = (buf) => Buffer.from(buf).toString('base64url')
+const arg = (name) => {
+  const i = process.argv.indexOf(`--${name}`)
+  return i > -1 ? process.argv[i + 1] : undefined
+}
+const die = (msg) => { console.error(msg); process.exit(1) }
+
+const [, , command, positional] = process.argv
+
+if (command === 'keygen') {
+  if (existsSync(PRIVATE)) die(`${PRIVATE} already exists — refusing to overwrite a signing key.`)
+  mkdirSync(DIR, { recursive: true, mode: 0o700 })
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  writeFileSync(PRIVATE, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
+  writeFileSync(PUBLIC, publicKey.export({ type: 'spki', format: 'pem' }))
+  chmodSync(PRIVATE, 0o600)
+  console.log(`private key: ${PRIVATE}  (back this up, never commit it)`)
+  console.log(`public key:  ${PUBLIC}\n`)
+  console.log(readFileSync(PUBLIC, 'utf8'))
+} else if (command === 'sign') {
+  const installId = arg('install')
+  const customer = arg('customer')
+  const days = Number(arg('days'))
+  const plan = arg('plan') ?? 'paid'
+  if (!installId || !customer || !Number.isFinite(days) || days <= 0) {
+    die('usage: sign --install <id> --customer "<name>" --days <n> [--plan paid|trial]')
+  }
+  if (!['paid', 'trial'].includes(plan)) die('--plan must be paid or trial')
+  if (!existsSync(PRIVATE)) die(`no signing key at ${PRIVATE} — run keygen first`)
+
+  const now = Date.now()
+  const payload = {
+    v: 1,
+    installId,
+    customer,
+    plan,
+    issuedAt: now,
+    expiresAt: now + days * 86_400_000,
+  }
+  const body = b64url(JSON.stringify(payload))
+  const signature = sign(null, Buffer.from(body), createPrivateKey(readFileSync(PRIVATE)))
+  console.log(`POS1.${body}.${b64url(signature)}`)
+  console.error(`\n${customer} · ${plan} · expires ${new Date(payload.expiresAt).toDateString()}`)
+} else if (command === 'inspect') {
+  const [prefix, body] = String(positional ?? '').split('.')
+  if (prefix !== 'POS1' || !body) die('not a POS1 licence key')
+  const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
+  console.log({ ...p, issuedAt: new Date(p.issuedAt).toISOString(), expiresAt: new Date(p.expiresAt).toISOString() })
+} else {
+  die('commands: keygen | sign | inspect   (see the header of tools/licence.mjs)')
+}

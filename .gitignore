@@ -9,3 +9,6 @@ build/
 *.db-wal
 *.db-shm
 .DS_Store
+
+# licence signing keys never belong in the repo
+*.pem

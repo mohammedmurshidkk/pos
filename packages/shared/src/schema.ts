@@ -223,6 +223,18 @@ export const settings = sqliteTable('settings', {
   requirePinOnAction: integer('require_pin_on_action', { mode: 'boolean' }).notNull().default(false),
 
   lastBackupAt: integer('last_backup_at', { mode: 'timestamp_ms' }),
+
+  /**
+   * Licence state. The install id is what a licence is signed against. It lives
+   * in the database rather than being derived from hardware on purpose: when the
+   * shop's PC dies, restoring a shift-close backup onto a new machine must bring
+   * the licence with it, not lock a restaurant out mid-week.
+   */
+  installId: text('install_id'),
+  trialStartedAt: integer('trial_started_at', { mode: 'timestamp_ms' }),
+  licenceKey: text('licence_key'),
+  /** Latest time ever observed — winding the PC clock back cannot rewind expiry. */
+  clockHighWater: integer('clock_high_water', { mode: 'timestamp_ms' }),
 })
 
 /* ──────────────────────────── transactions ──────────────────────────── */

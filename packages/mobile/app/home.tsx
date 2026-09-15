@@ -118,6 +118,16 @@ export default function Home() {
         </View>
       ) : null}
 
+      {data?.licence?.warning ? (
+        <View style={styles.bannerWrap}>
+          <Banner
+            tone={data.licence.state === 'expired' ? 'danger' : 'warning'}
+            message={data.licence.state === 'expired'
+              ? 'The licence has expired. Open orders can still take another round — ask the manager to renew.'
+              : `Licence ends in ${data.licence.daysLeft} day${data.licence.daysLeft === 1 ? '' : 's'}.`}
+          />
+        </View>
+      ) : null}
       {queued.length > 0 ? (
         <View style={styles.bannerWrap}>
           <Banner

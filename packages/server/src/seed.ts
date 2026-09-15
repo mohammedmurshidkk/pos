@@ -1,4 +1,5 @@
 import { newId, schema } from '@pos/shared'
+import { hashPin } from './services/auth.js'
 import { db, raw } from './db.js'
 
 const s = schema
@@ -99,14 +100,21 @@ export function seed() {
   ]
   db.insert(s.tables).values(tables).run()
 
-  const eRahul = newId(), eAnees = newId(), eSuhail = newId(), eFatima = newId()
+  const eRahul = newId(), eAnees = newId(), eSuhail = newId()
+  const eFatima = newId(), eSalim = newId()
   db.insert(s.employees).values([
     { id: eRahul, name: 'Rahul', role: 'waiter' },
     { id: eAnees, name: 'Anees', role: 'waiter' },
     { id: eSuhail, name: 'Suhail', role: 'waiter' },
     {
-      id: eFatima, name: 'Fatima', role: 'admin', pinHash: null,
+      // Demo PIN 1234 — change it under Setup before the shop goes live.
+      id: eFatima, name: 'Fatima', role: 'admin', pinHash: hashPin('1234'),
       canDiscount: true, maxDiscountPercent: 100, canSaveWithoutKot: true,
+    },
+    {
+      // A second admin so a shift handover does not need one person present.
+      id: eSalim, name: 'Salim', role: 'admin', pinHash: hashPin('4321'),
+      canDiscount: true, maxDiscountPercent: 20, canSaveWithoutKot: true,
     },
   ]).run()
 
@@ -150,7 +158,7 @@ export function seed() {
     pairToken: 'local', defaultCounterId: counter1,
   }).run()
 
-  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 2 modifier groups, 22 tables, 4 employees')
+  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 2 modifier groups, 22 tables, 5 employees (admin PINs 1234 / 4321)')
 }
 
 // Only auto-run when invoked directly (`pnpm seed`), so tests can import it.

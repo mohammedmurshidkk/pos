@@ -43,6 +43,8 @@ export interface Bootstrap {
   modifierGroups: ModifierGroup[]
   modifiers: Modifier[]
   itemModifierGroups: ItemModifierGroup[]
+  /** Enough for a banner — the key and install id never reach a tablet. */
+  licence?: { state: 'trial' | 'active' | 'expired'; plan: 'trial' | 'paid'; daysLeft: number; warning: boolean; expiresAt: string }
 }
 
 export interface OrderLine {

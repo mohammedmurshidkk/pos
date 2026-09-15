@@ -1,14 +1,23 @@
+import { existsSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import cors from '@fastify/cors'
 import websocket from '@fastify/websocket'
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import { newId, schema } from '@pos/shared'
 import { db, migrateDb } from './db.js'
-import { AppError, conflict, notFound } from './errors.js'
+import { seedMinimal } from './seed-minimal.js'
+import { AppError, conflict, forbidden, notFound, unpaired } from './errors.js'
 import { pingPrinter } from './printer.js'
 import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
 import { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
+import { login, setPin } from './services/auth.js'
+import {
+  authenticateDevice, cancelPairingCode, createPairingCode, hubAddresses, listDevices, pairDevice, revokeDevice,
+} from './services/devices.js'
+import { installLicence, licenceStatus } from './services/licence.js'
 import { createExpense, listExpenses } from './services/expenses.js'
 import {
   MASTERS, bulkTables, createMaster, deactivateMaster, listMaster, updateMaster, updateSettings,
@@ -20,6 +29,13 @@ import {
 import { closeShift, openShift, openShiftIdFor, zReport } from './services/shifts.js'
 import { removeUnsentLine, voidLine, voidOrder } from './services/voids.js'
 
+/** Set by the access hook when a paired tablet made the request. */
+declare module 'fastify' {
+  interface FastifyRequest {
+    device?: { id: string; name: string } | null
+  }
+}
+
 const s = schema
 
 /**
@@ -28,9 +44,9 @@ const s = schema
  * Electron imports this and runs it in-process, so nothing here may execute on
  * import — the desktop shell needs to set the database path first.
  */
-export async function createServer(opts: { pretty?: boolean } = {}) {
+export async function createServer(opts: { pretty?: boolean; logger?: boolean } = {}) {
 const app = Fastify({
-  logger: opts.pretty === false ? true : { transport: { target: 'pino-pretty' } },
+  logger: opts.logger === false ? false : opts.pretty === false ? true : { transport: { target: 'pino-pretty' } },
 })
 await app.register(cors, { origin: true })
 await app.register(websocket)
@@ -48,6 +64,64 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body,
   } catch {
     done(conflict('The request body was not valid JSON.'), undefined)
   }
+})
+
+/* ───────────────────────────── access ───────────────────────────── */
+
+/**
+ * Who may call what.
+ *
+ *   counter PC  — requests from this machine (loopback). The admin UI runs here,
+ *                 in Electron or behind the Vite proxy. Full access; the cashier
+ *                 is still identified by PIN sign-in for attribution.
+ *   tablet      — any other address, and only with a valid device token. Limited
+ *                 to taking orders: no settle, void, discount, masters, reports.
+ *   anyone      — health check and the pairing exchange itself.
+ *
+ * A presented token always wins, even from loopback: an emulator reached over
+ * `adb reverse` arrives as 127.0.0.1 and must still be scoped as a tablet.
+ *
+ * Loopback is read from the socket, never from X-Forwarded-For — trustProxy is
+ * off, so a LAN device cannot claim to be the counter.
+ */
+const PUBLIC_ROUTES = new Set(['GET /api/health', 'POST /api/devices/pair'])
+
+const TABLET_ROUTES = new Set([
+  'GET /api/bootstrap',
+  'GET /api/devices/me',
+  'GET /api/orders/open',
+  'GET /api/orders/:id',
+  'POST /api/orders',
+  'POST /api/orders/submit',
+  'POST /api/orders/:id/items',
+  'DELETE /api/orders/:id/items/:lineId',
+  'POST /api/orders/:id/send',
+  'POST /api/orders/:id/table',
+  'POST /api/orders/:id/bill',
+  'GET /ws',
+])
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+app.addHook('onRequest', async (req) => {
+  const route = `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`
+  if (PUBLIC_ROUTES.has(route)) return
+
+  const header = req.headers['x-device-token']
+  // WebSocket clients cannot always set headers, so /ws also accepts ?token=.
+  const token = (Array.isArray(header) ? header[0] : header) ??
+    (req.query as { token?: string } | undefined)?.token
+
+  if (token) {
+    const device = authenticateDevice(token)
+    if (!device) throw unpaired('This tablet has been unpaired. Pair it again from the counter PC.')
+    if (!TABLET_ROUTES.has(route)) throw forbidden('That can only be done at the counter.')
+    req.device = device
+    return
+  }
+
+  if (LOOPBACK.has(req.socket.remoteAddress ?? '')) return
+  throw unpaired('This device is not paired with the counter. Pair it from the counter PC.')
 })
 
 /**
@@ -89,14 +163,28 @@ printQueue.onEvent((e) => {
 /* ───────────────────────────── bootstrap ───────────────────────────── */
 
 app.get('/api/bootstrap', async () => ({
-  settings: db.select().from(s.settings).get(),
+  // Never ship the key or install id to a tablet — just enough for a banner.
+  licence: (({ state, plan, daysLeft, warning, expiresAt }) => ({ state, plan, daysLeft, warning, expiresAt }))(licenceStatus()),
+  settings: (({ licenceKey: _k, installId: _i, clockHighWater: _c, trialStartedAt: _t, ...rest }) => rest)(
+    db.select().from(s.settings).get()!,
+  ),
   areas: db.select().from(s.areas).where(eq(s.areas.active, true)).all(),
   tables: db.select().from(s.tables).where(eq(s.tables.active, true)).all(),
   categories: db.select().from(s.categories).where(eq(s.categories.active, true)).all(),
   items: db.select().from(s.items).where(eq(s.items.active, true)).all(),
   employees: db
-    .select({ id: s.employees.id, name: s.employees.name, role: s.employees.role, canSaveWithoutKot: s.employees.canSaveWithoutKot, canDiscount: s.employees.canDiscount })
-    .from(s.employees).where(eq(s.employees.active, true)).all(),
+    .select({
+      id: s.employees.id, name: s.employees.name, role: s.employees.role,
+      canSaveWithoutKot: s.employees.canSaveWithoutKot, canDiscount: s.employees.canDiscount,
+    })
+    .from(s.employees).where(eq(s.employees.active, true)).all()
+    // Never ship the hash; just whether a PIN exists, so the sign-in screen can
+    // explain why someone cannot be picked.
+    .map((e) => ({
+      ...e,
+      hasPin: db.select({ h: s.employees.pinHash }).from(s.employees)
+        .where(eq(s.employees.id, e.id)).get()?.h != null,
+    })),
   counters: db.select().from(s.counters).where(eq(s.counters.active, true)).all(),
   paymentModes: db.select().from(s.paymentModes).where(eq(s.paymentModes.active, true)).all(),
   modifierGroups: db.select().from(s.modifierGroups).where(eq(s.modifierGroups.active, true)).all(),
@@ -248,6 +336,72 @@ app.post('/api/expenses', async (req) => {
   return expense
 })
 
+/* ───────────────────────────── auth ───────────────────────────── */
+
+/**
+ * Counter sign-in. The tablet deliberately has no equivalent — see
+ * docs/01-product-spec.md §6.6.
+ */
+app.post('/api/auth/login', async (req) => {
+  const { employeeId, pin } = req.body as { employeeId: string; pin: string }
+  return login(employeeId, pin)
+})
+
+app.post('/api/auth/pin', async (req) => {
+  const { employeeId, pin, byEmployeeId } = req.body as
+    { employeeId: string; pin: string; byEmployeeId: string }
+  return setPin(employeeId, pin, byEmployeeId)
+})
+
+/* ───────────────────────────── devices ───────────────────────────── */
+
+/** Public: lets a tablet confirm it has found a hub before it has a token. */
+app.get('/api/health', async () => ({
+  ok: true,
+  name: db.select({ n: s.settings.businessName }).from(s.settings).get()?.n ?? null,
+}))
+
+app.post('/api/devices/pair', async (req) => {
+  const body = (req.body ?? {}) as { code: string; name?: string }
+  const result = pairDevice(body, req.socket.remoteAddress ?? 'unknown')
+  broadcast('device.paired', { deviceId: result.deviceId })
+  return result
+})
+
+/** Tablet: confirms the stored token is still accepted. */
+app.get('/api/devices/me', async (req) => req.device ?? null)
+
+app.get('/api/devices', async () => ({ devices: listDevices(), addresses: hubAddresses() }))
+
+app.post('/api/devices/code', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  return createPairingCode(employeeId)
+})
+
+app.delete('/api/devices/code', async () => {
+  cancelPairingCode()
+  return { cancelled: true }
+})
+
+app.delete('/api/devices/:id', async (req) => {
+  const { id } = req.params as { id: string }
+  const { employeeId } = (req.query ?? {}) as { employeeId: string }
+  const result = revokeDevice(id, employeeId)
+  broadcast('device.revoked', { deviceId: id })
+  return result
+})
+
+/* ───────────────────────────── licence ───────────────────────────── */
+
+app.get('/api/licence', async () => licenceStatus())
+
+app.post('/api/licence', async (req) => {
+  const { key, employeeId } = req.body as { key: string; employeeId: string }
+  const status = installLicence(key, employeeId)
+  broadcast('licence.changed', { state: status.state })
+  return status
+})
+
 /* ───────────────────────────── masters ───────────────────────────── */
 
 /**
@@ -377,6 +531,39 @@ app.post('/api/print-jobs/retry', async (req) => {
   return { retried: await printQueue.retryFailed(printerId) }
 })
 
+/* ───────────────────────────── admin UI ───────────────────────────── */
+
+/**
+ * Serve the built cashier UI from the hub itself.
+ *
+ * The Electron shell used to `loadFile()` it, but the UI calls relative `/api`
+ * paths, which from `file://` resolve to `file:///api/...` and never reach the
+ * hub. Loading it over http://127.0.0.1 fixes that, and puts every counter
+ * request on loopback — which the access hook above treats as the counter PC.
+ * A device on the shop wifi asking for `/` gets 401: the admin UI is not
+ * reachable from the LAN at all.
+ */
+const uiDir = process.env.POS_UI_DIR
+if (uiDir) {
+  const root = path.resolve(uiDir)
+  const TYPES: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json',
+    '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+  }
+  app.get('/*', async (req, reply) => {
+    const rel = decodeURIComponent(req.url.split('?')[0] ?? '/')
+    // Unknown API paths must 404, not quietly return the HTML shell.
+    if (rel.startsWith('/api/') || rel === '/ws') throw notFound('route')
+    const requested = path.resolve(root, `.${rel === '/' ? '/index.html' : rel}`)
+    if (requested !== root && !requested.startsWith(root + path.sep)) throw notFound('file')
+    // Hash routing means every non-file path is the app shell.
+    const file = existsSync(requested) && statSync(requested).isFile() ? requested : path.join(root, 'index.html')
+    reply.type(TYPES[path.extname(file)] ?? 'application/octet-stream')
+    return reply.send(await readFile(file))
+  })
+}
+
   return app
 }
 
@@ -386,6 +573,12 @@ app.post('/api/print-jobs/retry', async (req) => {
  */
 export async function startServer(opts: { port?: number; pretty?: boolean } = {}) {
   migrateDb()
+  // A fresh install has migrated tables and nothing in them, which is not a
+  // usable state: pricing throws "settings missing", and with no employee there
+  // is nobody to sign in as — and masters can only be created once signed in.
+  // seedMinimal is a no-op once a settings row exists, so this runs exactly once
+  // in the life of an installation.
+  seedMinimal()
   const app = await createServer(opts)
   const port = opts.port ?? Number(process.env.PORT ?? 4000)
   await app.listen({ port, host: '0.0.0.0' })

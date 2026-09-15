@@ -24,7 +24,8 @@
         {
           "cameraPermission": "Scan the pairing code shown on the counter PC."
         }
-      ]
+      ],
+      "./plugins/withCleartextTraffic"
     ],
     "experiments": {
       "typedRoutes": true

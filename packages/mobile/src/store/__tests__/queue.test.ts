@@ -124,3 +124,22 @@ describe('offline queue', () => {
     expect(submit).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('pairing', () => {
+  it('keeps orders queued when the tablet has been unpaired', async () => {
+    submit.mockRejectedValue(new ApiError('This tablet has been unpaired.', 'unpaired', 401))
+    await useQueue.getState().enqueue(payload('b1'))
+    await useQueue.getState().drain()
+
+    expect(useQueue.getState().pending).toHaveLength(1)
+    expect(useQueue.getState().rejected).toHaveLength(0)
+  })
+
+  it('still sets an expired-licence order aside with its reason', async () => {
+    submit.mockRejectedValue(new ApiError('The free trial has ended, so a new order cannot be started.', 'licence_expired', 402))
+    await useQueue.getState().enqueue(payload('b1'))
+    await useQueue.getState().drain()
+
+    expect(useQueue.getState().rejected[0]!.error).toMatch(/trial has ended/i)
+  })
+})

@@ -14,32 +14,91 @@ interface State {
   refreshPrinters: () => Promise<void>
   signIn: (employee: Employee) => void
   signOut: () => void
+  setCounter: (id: string) => void
   money: (minor: number) => string
   employeeName: (id: string | null | undefined) => string
+}
+
+const OPERATOR_KEY = 'pos.operator'
+const COUNTER_KEY = 'pos.counter'
+
+const restoreOperator = (): Employee | null => {
+  try {
+    const raw = sessionStorage.getItem(OPERATOR_KEY)
+    return raw ? (JSON.parse(raw) as Employee) : null
+  } catch {
+    return null
+  }
 }
 
 export const useStore = create<State>((set, get) => ({
   data: null,
   printers: [],
-  operator: null,
+  operator: restoreOperator(),
   counterId: null,
   error: null,
 
   load: async () => {
     try {
       const data = await api.bootstrap()
-      set({ data, counterId: get().counterId ?? data.counters[0]?.id ?? null, error: null })
+      // A till never moves, so remember which counter this PC is — but check it
+      // still exists on every load, not only when state is empty. An open tab
+      // keeps its counter id across a re-seed, and counter_id is a foreign key
+      // on payments: a stale one gets all the way to settlement before failing.
+      let counterId = get().counterId
+      if (!counterId) {
+        try { counterId = localStorage.getItem(COUNTER_KEY) } catch { /* ignore */ }
+      }
+      if (!counterId || !data.counters.some((c) => c.id === counterId)) {
+        counterId = data.counters[0]?.id ?? null
+        try {
+          if (counterId) localStorage.setItem(COUNTER_KEY, counterId)
+          else localStorage.removeItem(COUNTER_KEY)
+        } catch { /* private mode */ }
+      }
+      // The operator gets the same reconciliation the counter just got. A stored
+      // employee whose id is no longer live — a re-seeded database, or a cashier
+      // deactivated mid-shift — must not stay signed in: every write stamps that
+      // id, and the hub rejects an unknown one. Left unchecked the screen looks
+      // normal and only fails at the moment money is taken. Re-reading the row
+      // also picks up permission changes made since sign-in.
+      const stored = get().operator
+      const operator = stored ? data.employees.find((e) => e.id === stored.id) ?? null : null
+      try {
+        if (operator) sessionStorage.setItem(OPERATOR_KEY, JSON.stringify(operator))
+        else sessionStorage.removeItem(OPERATOR_KEY)
+      } catch { /* private mode */ }
+
+      set({ data, counterId, operator, error: null })
     } catch (e) {
       set({ error: e instanceof Error ? e.message : 'Could not reach the hub' })
     }
   },
 
   refreshPrinters: async () => {
-    try { set({ printers: await api.printers() }) } catch { /* header dots just go stale */ }
+    try {
+      // Clearing the error here is what makes a stale banner disappear once the
+      // hub is answering again — `load` only re-runs while `data` is null.
+      set({ printers: await api.printers(), error: null })
+    } catch { /* header dots just go stale */ }
   },
 
-  signIn: (employee) => set({ operator: employee }),
-  signOut: () => set({ operator: null }),
+  /**
+   * Kept in sessionStorage, not localStorage: reloading the window should not
+   * sign the cashier out, but closing the app should.
+   */
+  signIn: (employee) => {
+    try { sessionStorage.setItem(OPERATOR_KEY, JSON.stringify(employee)) } catch { /* private mode */ }
+    set({ operator: employee })
+  },
+  signOut: () => {
+    try { sessionStorage.removeItem(OPERATOR_KEY) } catch { /* ignore */ }
+    set({ operator: null })
+  },
+  setCounter: (id) => {
+    try { localStorage.setItem(COUNTER_KEY, id) } catch { /* ignore */ }
+    set({ counterId: id })
+  },
 
   /** Minor units → display. Decimals come from the hub, never hardcoded. */
   money: (minor) => {

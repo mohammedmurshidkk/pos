@@ -4,6 +4,8 @@ import { audit } from '../audit.js'
 import { db } from '../db.js'
 import { conflict, notFound } from '../errors.js'
 import { openShiftIdFor } from './shifts.js'
+import { requireCounter } from './counters.js'
+import { requireEmployee } from './employees.js'
 
 const s = schema
 
@@ -25,8 +27,8 @@ export function createExpense(input: {
   if (input.amount <= 0) throw conflict('Expense amount must be positive.')
   const cat = db.select().from(s.expenseCategories).where(eq(s.expenseCategories.id, input.expenseCategoryId)).get()
   if (!cat) throw notFound('expense category')
-  const emp = db.select().from(s.employees).where(eq(s.employees.id, input.paidBy)).get()
-  if (!emp) throw notFound('employee')
+  requireEmployee(input.paidBy)
+  if (input.counterId) requireCounter(input.counterId)
 
   const shiftId = input.counterId ? openShiftIdFor(input.counterId) : null
   // Without an open shift there is no drawer to pay from.

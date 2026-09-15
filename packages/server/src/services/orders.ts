@@ -5,6 +5,8 @@ import { audit } from '../audit.js'
 import { conflict, forbidden, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { KotPayload } from '../templates.js'
+import { requireEmployee } from './employees.js'
+import { assertLicensed } from './licence.js'
 
 const s = schema
 
@@ -44,6 +46,10 @@ export function createOrder(input: {
   addressSnapshot?: string | null
   createdBy: string
 }) {
+  requireEmployee(input.createdBy)
+  // Covers submitOrder too — it only creates via here. Add-on rounds to an
+  // order that already exists skip this, so an expiry never strands a table.
+  assertLicensed('new order')
   const id = newId()
   db.insert(s.orders).values({
     id,
@@ -64,6 +70,7 @@ export function createOrder(input: {
 }
 
 export function addItems(orderId: string, lines: NewLine[], employeeId: string, batchRef?: string) {
+  requireEmployee(employeeId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled' || order.status === 'void') {
@@ -151,8 +158,7 @@ export function sendToKitchen(orderId: string, employeeId: string, suppressKot =
     throw conflict('Order is settled and can no longer be edited. Start a new order.')
   }
 
-  const employee = db.select().from(s.employees).where(eq(s.employees.id, employeeId)).get()
-  if (!employee) throw notFound('employee')
+  const employee = requireEmployee(employeeId)
   if (suppressKot && !employee.canSaveWithoutKot) {
     throw forbidden(`${employee.name} is not permitted to save an order without a KOT.`)
   }
@@ -179,8 +185,20 @@ export function sendToKitchen(orderId: string, employeeId: string, suppressKot =
     }
   })
 
-  if (!cfg.defaultKitchenId) throw new Error('settings.defaultKitchenId is not set')
-  const groups = routeToKitchens(routable, cfg.defaultKitchenId)
+  // The default kitchen is the fallback for a line whose category has none —
+  // routeToKitchens reads it as `line.kitchenId ?? defaultKitchenId`. Demanding
+  // it even when every line is already routed blocks the most ordinary setup
+  // there is: one kitchen, every category pointing at it. As a plain Error it
+  // also reached the tablet as a 500 "Something went wrong", which names neither
+  // the cause nor the one field that fixes it.
+  const unrouted = routable.filter((l) => !l.kitchenId)
+  if (unrouted.length > 0 && !cfg.defaultKitchenId) {
+    const names = [...new Set(unrouted.map((l) => l.name))].join(', ')
+    throw conflict(
+      `No kitchen to send ${names} to. Give that category a kitchen, or set a default kitchen under Setup.`,
+    )
+  }
+  const groups = routeToKitchens(routable, cfg.defaultKitchenId ?? '')
 
   const existingSeqs = db
     .select({ seq: s.kotTickets.seq })
@@ -299,6 +317,8 @@ export function listOpenOrders() {
 
 /** Admin reassigns service credit. `createdBy` is never touched. */
 export function setWaiter(orderId: string, waiterId: string, employeeId: string) {
+  requireEmployee(employeeId)
+  requireEmployee(waiterId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled' || order.status === 'void') throw conflict('Order is locked.')
@@ -320,6 +340,7 @@ export function setWaiter(orderId: string, waiterId: string, employeeId: string)
  * and the tablet is what restricts the choice to free ones.
  */
 export function setTable(orderId: string, tableId: string | null, employeeId: string) {
+  requireEmployee(employeeId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled' || order.status === 'void') throw conflict('Order is locked.')

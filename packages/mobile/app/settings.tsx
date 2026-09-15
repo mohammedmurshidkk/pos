@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import Constants from 'expo-constants'
-import { api, getBaseUrl } from '../src/api/client'
+import { api } from '../src/api/client'
 import { Banner } from '../src/components/Banner'
 import { Button } from '../src/components/Button'
 import { Screen } from '../src/components/Screen'
@@ -27,7 +27,9 @@ export default function DeviceSettings() {
 
   const test = async () => {
     setStatus('testing')
-    setStatus((await api.ping(getBaseUrl() ?? '')) ? 'ok' : 'fail')
+    // Checks the token too: an address that answers but no longer accepts this
+    // tablet is not a working connection.
+    try { await api.me(); setStatus('ok') } catch { setStatus('fail') }
   }
 
   return (

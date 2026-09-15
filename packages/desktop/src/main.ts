@@ -46,6 +46,8 @@ async function main() {
   process.env.POS_BACKUP_DIR = path.join(dataDir, 'backups')
   // Migrations ship inside the app, next to the bundled server.
   process.env.POS_MIGRATIONS = path.join(__dirname, 'drizzle')
+  // The hub serves the UI, so it reaches /api over loopback — see index.ts.
+  process.env.POS_UI_DIR = path.join(__dirname, 'ui')
 
   log('data folder', dataDir)
   createWindow()
@@ -57,7 +59,8 @@ async function main() {
     const { startServer } = await import('@pos/server')
     await startServer({ port: PORT, pretty: false })
     log('hub listening on', PORT)
-    await window?.loadFile(path.join(__dirname, 'ui/index.html'))
+    // Not loadFile: from file:// the UI's relative /api calls never reach the hub.
+    await window?.loadURL(`http://127.0.0.1:${PORT}/`)
     log('ui loaded')
   } catch (err) {
     log('startup failed', err)

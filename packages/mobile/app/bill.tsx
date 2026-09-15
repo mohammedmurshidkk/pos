@@ -32,8 +32,15 @@ export default function Bill() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => { void api.order(id!).then(setOrder).catch(() => {}) }, [id])
+  // The remembered counter is checked against the live list, not just used when
+  // empty. A tablet paired before the counter was renumbered keeps a dead id in
+  // AsyncStorage, and counter_id is a foreign key — the bill fails at the moment
+  // the customer is waiting for it, with nothing on screen to explain why.
   useEffect(() => {
-    if (!counterId && data?.counters[0]) setCounterId(data.counters[0].id)
+    if (!data) return
+    if (!counterId || !data.counters.some((c) => c.id === counterId)) {
+      setCounterId(data.counters[0]?.id ?? null)
+    }
   }, [counterId, data])
 
   const print = async (employee: Employee) => {

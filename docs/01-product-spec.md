@@ -396,12 +396,24 @@ Non-negotiable for MVP:
 
 ---
 
-## 10. Licensing / trial
+## 10. Licensing / trial — built
 
-No cloud, so keep it simple: a **signed license file** containing expiry date + machine id, verified on launch against a public key embedded in the app.
-- Warn 7 days before expiry
-- On expiry → read-only mode (reports still viewable), **never** hard-lock mid-service
+- **30-day free trial** starts automatically on first run. No key needed.
+- **Paid licence** = a key signed by the vendor (Ed25519), bound to the installation's **install id**, shown on the counter PC under Licence. Format `POS1.<payload>.<signature>`.
+- The install id is stored in the **database, not derived from hardware**. Restoring a shift-close backup onto a replacement PC keeps the licence — a dead PC must not lock a restaurant out.
+- Warn from **7 days** before expiry, on the counter and on tablets.
+- **On expiry: no new orders, no new shifts.** Adding a round to an already-open order, billing, settling, closing the shift and reports all keep working — **never hard-lock mid-service.**
+- Setting the PC clock back does **not** extend a licence: expiry is measured from the latest time the install has ever seen.
+- Vendor tooling: `tools/licence.mjs` (`keygen`, `sign`, `inspect`). The private key never leaves the vendor's machine.
 
+### Device pairing — built
+
+- Only a **paired tablet** can place orders. Without pairing, any device on the shop wifi could send tickets to the kitchen.
+- Counter PC → Devices → **Pair a tablet** shows the hub address and a **6-digit code** (single use, expires in 10 minutes, 5 wrong tries locks that caller out for 60 s).
+- The tablet exchanges the code for a long-lived token, stored **hashed** on the hub.
+- A paired tablet is limited to order-taking routes. Settle, void, discount, masters, reports, licence and device management are **counter-only**.
+- **Unpair** takes effect on the tablet's next request; it returns to the pairing screen and keeps any orders it had queued.
+- The admin UI is served by the hub over loopback and is **not reachable from the shop wifi**.
 ---
 
 ## 11. Development & delivery on macOS

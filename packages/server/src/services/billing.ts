@@ -5,6 +5,8 @@ import { db, raw } from '../db.js'
 import { conflict, forbidden, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { BillPayload } from '../templates.js'
+import { requireCounter } from './counters.js'
+import { requireEmployee } from './employees.js'
 import { recalculate } from './orders.js'
 import { openShiftIdFor } from './shifts.js'
 
@@ -123,6 +125,8 @@ function buildPayload(
  * order as items are added. Settlement is what turns it into a tax invoice.
  */
 export function printBill(orderId: string, employeeId: string, counterId: string) {
+  requireEmployee(employeeId)
+  requireCounter(counterId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'void') throw conflict('This order was cancelled.')
@@ -185,6 +189,8 @@ export function settle(
   orderId: string,
   input: { payments: { paymentModeId: string; amount: number; refNo?: string | null }[]; employeeId: string; counterId: string; shiftId?: string | null },
 ) {
+  requireEmployee(input.employeeId)
+  requireCounter(input.counterId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled') throw conflict('Order is already settled.')
@@ -273,8 +279,7 @@ export function applyDiscount(
   if (!order) throw notFound('order')
   if (order.status === 'settled' || order.status === 'void') throw conflict('Order is locked.')
 
-  const emp = db.select().from(s.employees).where(eq(s.employees.id, input.employeeId)).get()
-  if (!emp) throw notFound('employee')
+  const emp = requireEmployee(input.employeeId)
   if (input.type !== 'none' && !emp.canDiscount) {
     throw forbidden(`${emp.name} is not permitted to apply discounts.`)
   }

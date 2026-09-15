@@ -77,6 +77,9 @@ export const useQueue = create<QueueState>((set, get) => {
             set({ pending: get().pending.slice(1) })
           } catch (e) {
             if (e instanceof OfflineError) return // still down — keep everything
+            // Unpaired is not the order's fault. Keep it: it goes out once the
+            // tablet has been paired again, instead of being set aside as rejected.
+            if (e instanceof ApiError && e.status === 401) return
             // A 4xx will not fix itself. Set it aside so nothing vanishes silently.
             const error = e instanceof ApiError ? e.message : 'Could not be sent.'
             set({

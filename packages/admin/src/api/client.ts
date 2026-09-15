@@ -1,4 +1,4 @@
-import type { Bootstrap, Order, PrintJob, Printer, ZReport } from './types'
+import type { Bootstrap, Device, LicenceStatus, Order, PrintJob, Printer, ZReport } from './types'
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) {
@@ -76,6 +76,22 @@ export const api = {
   zReport: (shiftId: string) => request<ZReport>(`/api/shifts/${shiftId}/z-report`),
   closeShift: (shiftId: string, body: { countedCash: number; employeeId: string }) =>
     post<{ report: ZReport; backupPath: string | null }>(`/api/shifts/${shiftId}/close`, body),
+
+  licence: () => request<LicenceStatus>('/api/licence'),
+  installLicence: (key: string, employeeId: string) =>
+    post<LicenceStatus>('/api/licence', { key, employeeId }),
+
+  devices: () => request<{ devices: Device[]; addresses: string[] }>('/api/devices'),
+  pairingCode: (employeeId: string) =>
+    post<{ code: string; expiresAt: string }>('/api/devices/code', { employeeId }),
+  cancelPairingCode: () => request<{ cancelled: boolean }>('/api/devices/code', { method: 'DELETE' }),
+  revokeDevice: (id: string, employeeId: string) =>
+    request<{ revoked: boolean }>(`/api/devices/${id}?employeeId=${employeeId}`, { method: 'DELETE' }),
+
+  login: (employeeId: string, pin: string) =>
+    post<{ id: string; name: string; role: 'admin' | 'waiter'; canDiscount: boolean; canSaveWithoutKot: boolean }>(
+      '/api/auth/login', { employeeId, pin },
+    ),
 
   masters: <T = Record<string, unknown>>(entity: string) => request<T[]>(`/api/masters/${entity}`),
   createMaster: <T>(entity: string, body: Record<string, unknown>, employeeId: string) =>

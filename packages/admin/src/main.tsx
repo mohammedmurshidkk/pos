@@ -5,6 +5,8 @@ import './theme/tokens.css'
 import { Shell } from './components/Shell'
 import { Billing } from './screens/Billing'
 import { Dashboard } from './screens/Dashboard'
+import { Devices } from './screens/Devices'
+import { Licence } from './screens/Licence'
 import { Masters } from './screens/Masters'
 import { Printers } from './screens/Printers'
 import { Shift } from './screens/Shift'
@@ -21,6 +23,8 @@ const router = createHashRouter([
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'printers', element: <Printers /> },
       { path: 'masters', element: <Masters /> },
+      { path: 'devices', element: <Devices /> },
+      { path: 'licence', element: <Licence /> },
       { path: 'shift', element: <Shift /> },
     ],
   },

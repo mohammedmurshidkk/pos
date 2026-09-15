@@ -6,6 +6,7 @@ import { conflict, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { KotPayload } from '../templates.js'
 import { recalculate } from './orders.js'
+import { requireEmployee } from './employees.js'
 
 const s = schema
 const stamp = () =>
@@ -82,6 +83,7 @@ function queueCancelTicket(
  * or they cook food nobody ordered.
  */
 export function voidLine(orderId: string, lineId: string, reason: string, employeeId: string) {
+  requireEmployee(employeeId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled') throw conflict('Order is settled — a refund is needed, not a void.')
@@ -122,6 +124,7 @@ export function voidLine(orderId: string, lineId: string, reason: string, employ
 
 /** Void the whole order. The invoice number, if allocated, is kept — never reused. */
 export function voidOrder(orderId: string, reason: string, employeeId: string) {
+  requireEmployee(employeeId)
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'settled') throw conflict('Order is settled — a refund is needed, not a void.')

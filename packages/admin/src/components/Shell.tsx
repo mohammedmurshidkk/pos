@@ -1,5 +1,8 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { api } from '../api/client'
+import { Login } from '../screens/Login'
+import { OpenCounter } from '../screens/OpenCounter'
 import { useStore } from '../store'
 import { Banner, Button } from './ui'
 
@@ -9,6 +12,8 @@ const NAV = [
   { to: '/shift', label: 'Shift' },
   { to: '/printers', label: 'Printers' },
   { to: '/masters', label: 'Setup' },
+  { to: '/devices', label: 'Devices' },
+  { to: '/licence', label: 'Licence' },
 ]
 
 /**
@@ -33,30 +38,41 @@ function PrinterStrip() {
   )
 }
 
-function OperatorPicker() {
-  const { data, operator, signIn, signOut } = useStore()
-  if (operator) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontWeight: 600 }}>{operator.name}</span>
-        <Button variant="ghost" onClick={signOut}>Switch</Button>
-      </div>
-    )
-  }
-  // Admins settle, discount and void — every one of those is attributed.
-  const admins = (data?.employees ?? []).filter((e) => e.role === 'admin')
+function OperatorChip() {
+  const { operator, signOut } = useStore()
+  if (!operator) return null
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <span className="muted">Signed in as</span>
-      {admins.map((e) => (
-        <Button key={e.id} onClick={() => signIn(e)}>{e.name}</Button>
-      ))}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontWeight: 600 }}>{operator.name}</span>
+      <Button variant="ghost" onClick={signOut}>Sign out</Button>
     </div>
   )
 }
 
 export function Shell() {
-  const { data, error, load, refreshPrinters } = useStore()
+  const { data, error, load, refreshPrinters, operator, counterId } = useStore()
+  const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
+
+  /**
+   * Nothing can be settled without an open shift, so the app is gated on one.
+   * Re-checked periodically because closing the shift on the Shift screen must
+   * send the cashier back to the open-counter step.
+   */
+  const checkShift = useCallback(async () => {
+    if (!counterId) return
+    try {
+      setShiftOpen((await api.currentShift(counterId)).open)
+    } catch {
+      setShiftOpen(null)
+    }
+  }, [counterId])
+
+  useEffect(() => {
+    if (!operator) return
+    void checkShift()
+    const t = setInterval(() => { void checkShift() }, 10_000)
+    return () => clearInterval(t)
+  }, [operator, checkShift])
 
   /**
    * Keep trying until the hub answers. Restarting the hub used to leave the
@@ -75,6 +91,28 @@ export function Shell() {
     const t = setInterval(() => { void refreshPrinters() }, 30_000)
     return () => clearInterval(t)
   }, [refreshPrinters])
+
+  if (!data) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+        <div className="card" style={{ padding: 32, display: 'grid', gap: 16, minWidth: 380 }}>
+          <h2>{error ? 'Cannot reach the hub' : 'Starting…'}</h2>
+          {error ? (
+            <>
+              <div className="muted">{error}</div>
+              <Button variant="primary" onClick={() => void load()}>Retry</Button>
+            </>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (!operator) return <Login />
+  // An expired licence cannot open a shift, so do not trap the cashier on that
+  // step — let them into the app to settle open orders, read reports and renew.
+  const expired = data.licence?.state === 'expired'
+  if (shiftOpen === false && !expired) return <OpenCounter onOpened={() => setShiftOpen(true)} />
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', height: '100%' }}>
@@ -109,10 +147,22 @@ export function Shell() {
           background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         }}>
           <PrinterStrip />
-          <OperatorPicker />
+          <OperatorChip />
         </header>
 
         <main style={{ flex: 1, overflow: 'auto', padding: 20, minWidth: 0 }}>
+          {data.licence?.warning ? (
+            <div style={{ marginBottom: 16 }}>
+              <Banner tone={expired ? 'danger' : 'warning'}>
+                <span style={{ flex: 1 }}>
+                  {expired
+                    ? `${data.licence.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired'}. New orders and shifts are blocked; open orders can still be settled.`
+                    : `${data.licence.plan === 'trial' ? 'Free trial' : 'Licence'} ends in ${data.licence.daysLeft} day${data.licence.daysLeft === 1 ? '' : 's'}.`}
+                </span>
+                <NavLink to="/licence" style={{ fontWeight: 600, color: 'inherit' }}>Open Licence</NavLink>
+              </Banner>
+            </div>
+          ) : null}
           {error ? (
             <div style={{ marginBottom: 16 }}>
               <Banner tone="danger">

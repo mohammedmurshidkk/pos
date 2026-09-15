@@ -2,8 +2,10 @@ import { and, count, eq } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { z } from 'zod'
 import { audit } from '../audit.js'
+import { hashPin } from './auth.js'
 import { db } from '../db.js'
 import { conflict, notFound } from '../errors.js'
+import { requireEmployee } from './employees.js'
 
 const s = schema
 
@@ -51,6 +53,8 @@ const table = z.object({
 const employee = z.object({
   name,
   role: z.enum(['admin', 'waiter']),
+  /** Plain text on the way in only; hashed before it touches the database. */
+  pin: z.string().regex(/^\d{4,6}$/, 'A PIN must be 4 to 6 digits').optional(),
   canDiscount: z.boolean().default(false),
   maxDiscountPercent: z.number().int().min(0).max(100).default(0),
   canSaveWithoutKot: z.boolean().default(false),
@@ -165,6 +169,14 @@ export const MASTERS: Record<string, Entry> = {
   modifiers: { table: s.modifiers, schema: modifier },
 }
 
+/** A PIN never reaches the database in the clear, and never appears in the audit log. */
+function hashPinField(data: Record<string, unknown>) {
+  if (typeof data.pin === 'string' && data.pin !== '') {
+    data.pinHash = hashPin(data.pin)
+  }
+  delete data.pin
+}
+
 function entry(name: string): Entry {
   const e = MASTERS[name]
   if (!e) throw notFound(`master '${name}'`)
@@ -195,9 +207,11 @@ export function listMaster(name: string) {
 }
 
 export function createMaster(name: string, body: unknown, employeeId: string) {
+  requireEmployee(employeeId)
   const e = entry(name)
   const data = parse(e, body, false)
   assertNameFree(e, data.name)
+  hashPinField(data)
 
   const id = newId()
   db.insert(e.table).values({ id, ...data }).run()
@@ -206,12 +220,14 @@ export function createMaster(name: string, body: unknown, employeeId: string) {
 }
 
 export function updateMaster(name: string, id: string, body: unknown, employeeId: string) {
+  requireEmployee(employeeId)
   const e = entry(name)
   const before = db.select().from(e.table).where(eq(e.table.id, id)).get()
   if (!before) throw notFound(name)
 
   const data = parse(e, body, true)
   assertNameFree(e, data.name, id)
+  hashPinField(data)
 
   // Turning a record off is what the guards protect; turning one on is safe.
   if (data.active === false && e.guard) {
@@ -232,6 +248,7 @@ export function updateMaster(name: string, id: string, body: unknown, employeeId
  * would leave last month's reports unable to name it.
  */
 export function deactivateMaster(name: string, id: string, employeeId: string) {
+  requireEmployee(employeeId)
   const e = entry(name)
   const row = db.select().from(e.table).where(eq(e.table.id, id)).get()
   if (!row) throw notFound(name)
@@ -272,6 +289,7 @@ const settingsSchema = z.object({
 }).partial()
 
 export function updateSettings(body: unknown, employeeId: string) {
+  requireEmployee(employeeId)
   const result = settingsSchema.safeParse(body)
   if (!result.success) {
     throw conflict(result.error.issues[0]?.message ?? 'That does not look right.')

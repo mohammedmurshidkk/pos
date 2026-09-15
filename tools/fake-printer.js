@@ -13,10 +13,10 @@
 import net from 'node:net'
 
 const LABELS = {
-  9100: 'ARABIC KITCHEN',
-  9101: 'CHINESE KITCHEN',
-  9102: 'JUICE CORNER',
-  9130: 'COUNTER 1',
+  9100: 'MAIN COUNTER',
+  9101: 'ARABIC KITCHEN',
+  9102: 'INDIAN KITCHEN',
+  // 9130: 'COUNTER 1',
 }
 
 const ports = process.argv.slice(2).map(Number).filter(Boolean)
@@ -34,9 +34,11 @@ const clean = (buf) =>
     .replace(/\x1b\x70[\s\S]{0,2}/g, '[DRAWER KICK]\n')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
 
+let listening = 0
+
 for (const port of ports) {
   const label = LABELS[port] ?? `PRINTER :${port}`
-  net
+  const server = net
     .createServer((sock) => {
       const chunks = []
       sock.on('data', (d) => chunks.push(d))
@@ -49,7 +51,33 @@ for (const port of ports) {
       })
       sock.on('error', () => {})
     })
-    .listen(port, () => console.log(`fake printer  ${label.padEnd(16)} :${port}`))
+    .listen(port, () => {
+      listening += 1
+      console.log(`fake printer  ${label.padEnd(16)} :${port}`)
+    })
+
+  /**
+   * Without this the whole tool dies on an unhandled 'error' event with a stack
+   * trace, which reads like a bug in the POS rather than "it is already running".
+   */
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`  :${port} is already in use — another fake printer is probably running.`)
+      console.error(`  Stop it with:  pkill -f fake-printer.js`)
+    } else {
+      console.error(`  :${port} failed to start — ${err.message}`)
+    }
+    // Give the other ports a chance to bind before deciding we are useless.
+    setImmediate(() => {
+      if (listening === 0) process.exit(1)
+    })
+  })
 }
 
-console.log('\nwaiting for jobs — ctrl-c to stop\n')
+process.on('exit', () => {
+  if (listening === 0) console.error('\nNo ports could be opened. Nothing is listening.')
+})
+
+setTimeout(() => {
+  if (listening > 0) console.log(`\n${listening} printer(s) listening — ctrl-c to stop\n`)
+}, 100)
