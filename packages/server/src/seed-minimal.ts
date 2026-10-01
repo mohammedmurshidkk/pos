@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto'
 import { newId, schema } from '@pos/shared'
 import { hashPin } from './services/auth.js'
+import { setSuperadminPassword } from './services/superadmin.js'
 import { db, raw } from './db.js'
 
 const s = schema
@@ -49,7 +51,14 @@ export function seedMinimal(name = 'Admin', pin = '1234'): boolean {
     canSaveWithoutKot: true,
   }).run()
 
+  // Random, not a constant: a shared default would be the same on every
+  // installation, and this password can reset any admin PIN.
+  const superadmin = randomBytes(9).toString('base64url').slice(0, 12)
+  setSuperadminPassword(superadmin)
+
   console.log(`minimal seed: settings + one admin "${name}" (PIN ${pin}).`)
+  console.log(`SUPERADMIN PASSWORD: ${superadmin}   <- write this down, it is shown once`)
+  console.log('Lost it? Run `pnpm superadmin:set -- "<password>"` on this PC.')
   console.log('Create printers → kitchens → counters → categories → items, then areas, tables, staff and payment modes under Setup.')
   return true
 }

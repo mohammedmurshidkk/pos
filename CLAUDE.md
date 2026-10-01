@@ -12,7 +12,7 @@ cover the UI.
 
 ```
 packages/shared    Drizzle schema, money/tax engine, KOT routing   28 tests
-packages/server    Fastify + SQLite, ESC/POS, print queue         131 tests
+packages/server    Fastify + SQLite, ESC/POS, print queue         166 tests
 packages/admin     React + Vite cashier/admin UI (light theme)
 packages/mobile    Expo waiter app (dark, responsive)              10 tests
 packages/desktop   Electron shell — packages server + admin as one .exe
@@ -22,7 +22,7 @@ tools/             fake-printer.js · licence.mjs (vendor-only licence signing)
 ## Commands
 
 ```bash
-pnpm -r test && pnpm -r typecheck        # 169 tests
+pnpm -r test && pnpm -r typecheck        # 204 tests
 node tools/fake-printer.js 9100 9101 9102 9130
 cd packages/server && pnpm dev           # hub on :4000
 cd packages/admin  && pnpm dev           # cashier UI on :5173 (proxies /api)
@@ -109,6 +109,68 @@ no installed shop can be renewed without shipping a build with a new public key
 (`packages/server/src/licence-public-key.ts`). Tests use a throwaway keypair via
 `POS_LICENCE_PUBLIC_KEY`.
 
+## Superadmin — the way back in
+
+**Ctrl + Alt + Shift + A** anywhere in the cashier UI opens a password modal —
+on macOS that is **Control + Option + Shift + A** (⌃⌥⇧A). Matched on
+`e.code === 'KeyA'`, never `e.key`: holding Option on macOS rewrites the
+character (Option+A arrives as `å`), so a `key` match silently never fires there.
+There is no label, no nav item and no route: the door is mounted above the
+router (`components/SuperadminDoor.tsx`) so it works **while the sign-in screen
+is showing** — which is the whole point, since it exists for "every admin PIN is
+forgotten".
+
+Inside, two tabs:
+- **Admins** — add, reset a PIN, enable/disable, change the superadmin password.
+- **Clear data** — hand a tested hub over as a fresh one.
+
+Clearing goes in dependency order and the hub says which group to do first
+("Clear the Menu first — categories decide which kitchen prints their tickets")
+rather than failing with a foreign-key error. **Clear everything** ignores the
+order because the whole graph goes at once, and needs the word CLEAR typed.
+
+**Clearing is a hard delete** — `DELETE FROM`, not the `active = false` rule the
+rest of the app follows. Those soft deletes exist to protect historical
+references; a clear removes the history too, so there is nothing left to point
+at the rows.
+
+A backup is written before anything is deleted (`before-clear-*.db`).
+Clearing Sales also restarts invoice and order numbering at 1.
+
+**Clear everything also runs `VACUUM` + `wal_checkpoint(TRUNCATE)`.** DELETE
+frees pages without overwriting them, so without this the previous shop's menu
+and sales stay readable inside `pos.db` — which matters when the same PC is
+handed to a different restaurant. A test asserts the text is gone from both the
+db and its `-wal` sidecar. Single-group clears do **not** rebuild the file.
+
+⚠️ The `before-clear-*.db` backups are full copies sitting next to the database.
+Handing a PC to another client means deleting those too.
+
+**Never cleared:** install id, trial clock, licence key and the superadmin
+password — losing those would cost the shop its licence and lock the superadmin
+out of the installation it just reset. After a full clear nobody can sign in,
+which is the intended state: the superadmin adds the first admin, and that admin
+builds the rest.
+
+The audit log is cleared but deliberately **not counted** — clearing writes its
+own audit row, which would otherwise leave the group looking non-empty and block
+Employees forever.
+
+- Counter PC only. Every `/api/superadmin/*` route is absent from
+  `TABLET_ROUTES`, so a paired tablet gets 403 even with the right password.
+- Password is scrypt-hashed in `settings.superadminHash`; 5 wrong tries → 60 s
+  lockout; session token is 30 minutes, sliding, memory-only on both ends.
+- It **cannot disable the last admin who can sign in** — that state would be
+  unrecoverable from the UI.
+- Every action is audited (`superadmin.*`). PINs and passwords never enter the log.
+
+Passwords: demo seed = `superadmin1`. A real install gets a **random one printed
+once** by `seedMinimal`. Lost it? On the shop's PC:
+
+```bash
+pnpm --filter @pos/server superadmin:set -- "a good password"
+```
+
 ## Rules the code depends on
 
 - **Money is integers in minor units.** AED 25.50 is `2550`. The tax rate is
@@ -131,9 +193,10 @@ no installed shop can be renewed without shipping a build with a new public key
 ## Status
 
 Done: hub server, KOT routing, billing/settlement, voids, shifts + Z-report,
-expenses, reports, master data CRUD, counter sign-in + open counter, **licence &
-trial expiry, device pairing tokens & tablet access scope**, admin UI (billing,
-settle, shift, printers, dashboard, setup, devices, licence), waiter app
+expenses, reports, master data CRUD, counter sign-in + open counter, licence &
+trial expiry, device pairing tokens & tablet access scope, **superadmin (hidden
+shortcut, admin management)**, admin UI (billing, settle, shift, printers,
+dashboard, setup, devices, licence), waiter app
 (responsive, offline queue, pairing by code), Electron shell.
 
 Not done: expenses/reports/settings screens in admin, QR pairing camera,

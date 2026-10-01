@@ -122,6 +122,18 @@ Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of sp
 
 **No login. No session. No lock.** A paired tablet boots straight to Home. Identity is captured per action by the employee picker (W-EMP). The tablet cannot take payment and cannot void.
 
+## A24 · Superadmin — P0 · **built, hidden**
+The way back in when every admin PIN has been forgotten.
+- Opened by **Ctrl + Alt + Shift + A**, then a password. No label, no nav item, no route — mounted above the router so it works on the sign-in screen, which is where a locked-out shop actually is
+- **Admins** tab: add admin · reset an admin's PIN · enable/disable an admin · change the superadmin password
+- **Clear data** tab: every group with a live row count — Sales and history, Menu, Areas and tables, Employees, Counters and payment modes, Kitchens, Printers, Paired tablets, Expense categories
+- Blocked groups say what to clear first, in words ("Clear the Menu first — categories decide which kitchen prints their tickets"); **Clear everything** needs CLEAR typed
+- A backup is written before any delete; clearing Sales restarts invoice numbering at 1
+- The licence, trial clock and superadmin password survive a full clear, so the superadmin can sign back in and create the first admin
+- Marked **Counter PC only** on screen; tablets are refused by the hub regardless of password
+- Refuses to disable the last admin who can still sign in
+- **States:** password prompt · wrong password · locked out · list · add · reset PIN · change password · session ended
+
 ## W01 · Pairing — P0 · **built**
 Hub IP + port, a **6-digit pairing code** from the counter PC, and a name for the tablet.
 - Checks the hub answers (`/api/health`) before trying the code, so "wrong wifi" and "wrong code" read differently

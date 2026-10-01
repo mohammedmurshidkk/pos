@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider, createHashRouter, Navigate } from 'react-router-dom'
 import './theme/tokens.css'
 import { Shell } from './components/Shell'
+import { SuperadminDoor } from './components/SuperadminDoor'
 import { Billing } from './screens/Billing'
 import { Dashboard } from './screens/Dashboard'
 import { Devices } from './screens/Devices'
@@ -32,6 +33,8 @@ const router = createHashRouter([
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {/* Above the router: it must work while the sign-in screen is showing. */}
+    <SuperadminDoor />
     <RouterProvider router={router} />
   </StrictMode>,
 )

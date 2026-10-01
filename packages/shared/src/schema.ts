@@ -235,6 +235,14 @@ export const settings = sqliteTable('settings', {
   licenceKey: text('licence_key'),
   /** Latest time ever observed — winding the PC clock back cannot rewind expiry. */
   clockHighWater: integer('clock_high_water', { mode: 'timestamp_ms' }),
+
+  /**
+   * Superadmin password (scrypt). The recovery door: when every admin PIN is
+   * lost there is no other way back in, because admins can only be created from
+   * inside the app. Never a shared constant — set per installation, and
+   * resettable from the PC itself with `pnpm superadmin:set`.
+   */
+  superadminHash: text('superadmin_hash'),
 })
 
 /* ──────────────────────────── transactions ──────────────────────────── */

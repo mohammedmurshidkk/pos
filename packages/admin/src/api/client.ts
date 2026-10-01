@@ -29,6 +29,55 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) })
 
+/**
+ * Superadmin session token. Memory only — it must not survive a reload, and it
+ * is never written to storage where a curious cashier could find it.
+ */
+let superadminToken: string | null = null
+export const setSuperadminToken = (token: string | null) => { superadminToken = token }
+const sa = (): Record<string, string> =>
+  superadminToken ? { 'x-superadmin-token': superadminToken } : {}
+
+export interface InventoryGroup {
+  id: string
+  label: string
+  description: string
+  count: number
+  /** Why this cannot be cleared yet — shown to the operator verbatim. */
+  blockedBy: string | null
+}
+
+export interface AdminRow {
+  id: string
+  name: string
+  active: boolean
+  hasPin: boolean
+  canDiscount: boolean
+  maxDiscountPercent: number
+  createdAt: string
+}
+
+export const superadmin = {
+  status: () => request<{ configured: boolean }>('/api/superadmin/status'),
+  login: (password: string) =>
+    post<{ token: string; expiresAt: string }>('/api/superadmin/login', { password }),
+  logout: () => request<{ ok: true }>('/api/superadmin/logout', { method: 'POST', headers: sa() }),
+  admins: () => request<AdminRow[]>('/api/superadmin/admins', { headers: sa() }),
+  createAdmin: (name: string, pin: string) =>
+    request<AdminRow>('/api/superadmin/admins', { method: 'POST', headers: sa(), body: JSON.stringify({ name, pin }) }),
+  resetPin: (id: string, pin: string) =>
+    request<{ ok: true }>(`/api/superadmin/admins/${id}/pin`, { method: 'POST', headers: sa(), body: JSON.stringify({ pin }) }),
+  setActive: (id: string, active: boolean) =>
+    request<{ ok: true }>(`/api/superadmin/admins/${id}/active`, { method: 'POST', headers: sa(), body: JSON.stringify({ active }) }),
+  inventory: () => request<InventoryGroup[]>('/api/superadmin/inventory', { headers: sa() }),
+  clear: (group: string) =>
+    request<{ cleared: string; rows: number; backupPath: string | null }>(
+      `/api/superadmin/clear/${group}`, { method: 'POST', headers: sa() },
+    ),
+  setPassword: (password: string) =>
+    request<{ ok: true }>('/api/superadmin/password', { method: 'POST', headers: sa(), body: JSON.stringify({ password }) }),
+}
+
 export const api = {
   bootstrap: () => request<Bootstrap>('/api/bootstrap'),
   openOrders: () => request<Order[]>('/api/orders/open'),

@@ -18,6 +18,11 @@ import {
   authenticateDevice, cancelPairingCode, createPairingCode, hubAddresses, listDevices, pairDevice, revokeDevice,
 } from './services/devices.js'
 import { installLicence, licenceStatus } from './services/licence.js'
+import { clearEverything, clearGroup, inventory, type GroupId } from './services/reset.js'
+import {
+  createAdmin, listAdmins, requireSuperadmin, resetAdminPin, setAdminActive,
+  setSuperadminPassword, superadminConfigured, superadminLogin, superadminLogout,
+} from './services/superadmin.js'
 import { createExpense, listExpenses } from './services/expenses.js'
 import {
   MASTERS, bulkTables, createMaster, deactivateMaster, listMaster, updateMaster, updateSettings,
@@ -400,6 +405,73 @@ app.post('/api/licence', async (req) => {
   const status = installLicence(key, employeeId)
   broadcast('licence.changed', { state: status.state })
   return status
+})
+
+/* ───────────────────────────── superadmin ───────────────────────────── */
+
+/**
+ * The way back in when admin PINs are lost.
+ *
+ * None of these appear in TABLET_ROUTES, so a paired tablet gets 403 whatever
+ * password it presents — the door only exists on the counter PC.
+ */
+const superadminToken = (req: { headers: Record<string, unknown> }) => {
+  const h = req.headers['x-superadmin-token']
+  return (Array.isArray(h) ? h[0] : h) as string | undefined
+}
+
+app.get('/api/superadmin/status', async () => ({ configured: superadminConfigured() }))
+
+app.post('/api/superadmin/login', async (req) => {
+  const { password } = req.body as { password: string }
+  return superadminLogin(password ?? '', req.socket.remoteAddress ?? 'unknown')
+})
+
+app.post('/api/superadmin/logout', async (req) => superadminLogout(superadminToken(req)))
+
+app.get('/api/superadmin/admins', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  return listAdmins()
+})
+
+app.post('/api/superadmin/admins', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const { name, pin } = req.body as { name: string; pin: string }
+  const admin = createAdmin({ name, pin })
+  broadcast('master.changed', { entity: 'employees' })
+  return admin
+})
+
+app.post('/api/superadmin/admins/:id/pin', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const { id } = req.params as { id: string }
+  return resetAdminPin(id, (req.body as { pin: string }).pin)
+})
+
+app.post('/api/superadmin/admins/:id/active', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const { id } = req.params as { id: string }
+  const result = setAdminActive(id, (req.body as { active: boolean }).active)
+  broadcast('master.changed', { entity: 'employees' })
+  return result
+})
+
+app.get('/api/superadmin/inventory', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  return inventory()
+})
+
+app.post('/api/superadmin/clear/:group', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const { group } = req.params as { group: string }
+  const result = group === 'all' ? clearEverything() : clearGroup(group as GroupId)
+  broadcast('master.changed', { entity: group })
+  return result
+})
+
+app.post('/api/superadmin/password', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  return setSuperadminPassword((req.body as { password: string }).password ?? '')
 })
 
 /* ───────────────────────────── masters ───────────────────────────── */
