@@ -12,17 +12,17 @@ cover the UI. `05-menu-import.md` covers the menu CSV import.
 
 ```
 packages/shared    Drizzle schema, money/tax engine, KOT routing   28 tests
-packages/server    Fastify + SQLite, ESC/POS, print queue         206 tests
+packages/server    Fastify + SQLite, ESC/POS, print queue         227 tests
 packages/admin     React + Vite cashier/admin UI (light theme)      8 tests
 packages/mobile    Expo waiter app (dark, responsive)              10 tests
 packages/desktop   Electron shell — packages server + admin as one .exe
-tools/             fake-printer.js · licence.mjs (vendor-only licence signing)
+tools/             fake-printer.js · licence.mjs + licence-generator.html (vendor-only licence signing)
 ```
 
 ## Commands
 
 ```bash
-pnpm -r test && pnpm -r typecheck        # 252 tests
+pnpm -r test && pnpm -r typecheck        # 273 tests
 node tools/fake-printer.js 9100 9101 9102 9130
 cd packages/server && pnpm dev           # hub on :4000
 cd packages/admin  && pnpm dev           # cashier UI on :5173 (proxies /api)
@@ -89,8 +89,12 @@ go back to `loadFile()` — the UI's relative `/api` calls resolve to
 stored hashed. Unpair takes effect on the next request; the tablet goes back to
 the pairing screen and **keeps its queued orders** (401 is not a rejection).
 
-**Licence:** 30-day trial starts on first run. A paid licence is an Ed25519-signed
-key bound to the install id (`POS1.<payload>.<sig>`). Expiry blocks **new orders
+**Licence:** there is **no automatic trial**. A fresh install is `unlicensed`
+(blocks new orders and shifts) until the superadmin grants a trial — in
+**minutes, hours or days**, from now, replacing any earlier trial; `0` ends it
+(`grantTrial`, `settings.trialEndsAt`). A paid licence is an Ed25519-signed
+key bound to the install id (`POS1.<payload>.<sig>`). With both, whichever ends
+later counts. Expiry blocks **new orders
 and new shifts only** — add-on rounds, billing, settling, closing the shift and
 reports all keep working, so a lapse never strands a seated table. Since settling
 needs a shift, an expired install **can still open a shift while any order is
@@ -100,8 +104,13 @@ unsettled** (`canOpenShift`); the cashier UI follows `canOpen` from
 The install id lives in the database, not hardware, on purpose: restoring a
 backup onto a replacement PC must bring the licence with it.
 
+**No terminal:** open `tools/licence-generator.html` (double-click). Pick the
+`.pem`, type install id + customer + value + unit (minutes/hours/days), copy the
+key. Signs in the browser, stores nothing. A server test runs the page's signing
+code against `parseLicence`, so the two cannot drift. Never host or ship it.
+
 ```bash
-node tools/licence.mjs sign --install <id> --customer "Al Manzil" --days 365
+node tools/licence.mjs sign --install <id> --customer "Al Manzil" --days 365   # or --hours / --minutes
 node tools/licence.mjs inspect <key>
 ```
 
@@ -166,8 +175,16 @@ Employees forever.
   unrecoverable from the UI.
 - Every action is audited (`superadmin.*`). PINs and passwords never enter the log.
 
-Passwords: demo seed = `superadmin1`. A real install gets a **random one printed
-once** by `seedMinimal`. Lost it? On the shop's PC:
+**First run.** `seedMinimal` creates only the settings row — **no admin, no
+superadmin password, no trial**. With no password set, `SuperadminDoor` shows
+**First-time setup** over everything: choose the password (`POST
+/api/superadmin/setup`, works once), then the superadmin screen opens on a
+checklist — add the first admin with a starting PIN, then grant a trial or
+activate a key. The admin signs in and changes the PIN via **Change PIN** in the
+header (`/api/auth/change-pin`, needs the current PIN). PINs are exactly
+**4 digits** — sign-in submits on the fourth.
+
+Passwords: demo seed = `superadmin1` (and a 30-day trial). Lost it? On the shop's PC:
 
 ```bash
 pnpm --filter @pos/server superadmin:set -- "a good password"

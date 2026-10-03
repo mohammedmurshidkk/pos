@@ -112,12 +112,13 @@ Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of sp
 - **States:** idle · code showing · just paired · unpair confirm · no devices
 
 ## A23 · Licence — P0 · **built**
-- Status card: *Free trial* / *Licensed to …* / *Trial ended* / *Licence expired*, with days left and end date
+- Status card: *Not licensed yet* / *Free trial* / *Licensed to …* / *Trial ended* / *Licence expired*, with time left (minutes, hours or days) and end date
 - **Install ID** with Copy — what the shop sends the supplier
 - Paste a licence key → **Activate**; errors say exactly why (wrong installation, expired, not valid)
 - Warning banner if the PC clock has been set back
 - Header banner on every screen from 7 days before expiry. When expired, the open-counter step still appears while orders are waiting to be settled (payments need a shift); once nothing is left to settle it is skipped so the cashier can read reports and renew
-- **States:** trial · active · warning · expired · clock rolled back
+- **States:** unlicensed · trial · active · warning · expired · clock rolled back
+- The trial itself is granted from the superadmin screen's **Licence** tab (value + minutes/hours/days), not here
 
 ---
 

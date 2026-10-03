@@ -13,15 +13,15 @@ import { pingPrinter } from './printer.js'
 import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
 import { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
-import { login, setPin } from './services/auth.js'
+import { changeOwnPin, login, setPin } from './services/auth.js'
 import {
   authenticateDevice, cancelPairingCode, createPairingCode, hubAddresses, listDevices, pairDevice, revokeDevice,
 } from './services/devices.js'
-import { installLicence, licenceStatus } from './services/licence.js'
+import { grantTrial, installLicence, licenceStatus, type TrialUnit } from './services/licence.js'
 import { clearEverything, clearGroup, inventory, type GroupId } from './services/reset.js'
 import {
   createAdmin, listAdmins, requireSuperadmin, resetAdminPin, setAdminActive,
-  setSuperadminPassword, superadminConfigured, superadminLogin, superadminLogout,
+  setSuperadminPassword, setupSuperadmin, superadminConfigured, superadminLogin, superadminLogout,
 } from './services/superadmin.js'
 import { createExpense, listExpenses } from './services/expenses.js'
 import {
@@ -170,8 +170,8 @@ printQueue.onEvent((e) => {
 
 app.get('/api/bootstrap', async () => ({
   // Never ship the key or install id to a tablet — just enough for a banner.
-  licence: (({ state, plan, daysLeft, warning, expiresAt }) => ({ state, plan, daysLeft, warning, expiresAt }))(licenceStatus()),
-  settings: (({ licenceKey: _k, installId: _i, clockHighWater: _c, trialStartedAt: _t, ...rest }) => rest)(
+  licence: (({ state, plan, daysLeft, msLeft, warning, expiresAt }) => ({ state, plan, daysLeft, msLeft, warning, expiresAt }))(licenceStatus()),
+  settings: (({ licenceKey: _k, installId: _i, clockHighWater: _c, trialStartedAt: _t, trialEndsAt: _te, superadminHash: _h, ...rest }) => rest)(
     db.select().from(s.settings).get()!,
   ),
   areas: db.select().from(s.areas).where(eq(s.areas.active, true)).all(),
@@ -362,6 +362,13 @@ app.post('/api/auth/pin', async (req) => {
   return setPin(employeeId, pin, byEmployeeId)
 })
 
+/** The signed-in admin replacing their own PIN; needs the current one. */
+app.post('/api/auth/change-pin', async (req) => {
+  const { employeeId, currentPin, newPin } = req.body as
+    { employeeId: string; currentPin: string; newPin: string }
+  return changeOwnPin(employeeId, currentPin ?? '', newPin ?? '')
+})
+
 /* ───────────────────────────── devices ───────────────────────────── */
 
 /** Public: lets a tablet confirm it has found a hub before it has a token. */
@@ -431,6 +438,11 @@ app.post('/api/superadmin/login', async (req) => {
   return superadminLogin(password ?? '', req.socket.remoteAddress ?? 'unknown')
 })
 
+app.post('/api/superadmin/setup', async (req) => {
+  const { password } = (req.body ?? {}) as { password?: string }
+  return setupSuperadmin(password ?? '')
+})
+
 app.post('/api/superadmin/logout', async (req) => superadminLogout(superadminToken(req)))
 
 app.get('/api/superadmin/admins', async (req) => {
@@ -471,6 +483,26 @@ app.post('/api/superadmin/clear/:group', async (req) => {
   const result = group === 'all' ? clearEverything() : clearGroup(group as GroupId)
   broadcast('master.changed', { entity: group })
   return result
+})
+
+app.get('/api/superadmin/licence', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  return licenceStatus()
+})
+
+app.post('/api/superadmin/trial', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const { value, unit } = req.body as { value: number; unit: TrialUnit }
+  const status = grantTrial(value, unit)
+  broadcast('licence.changed', { state: status.state })
+  return status
+})
+
+app.post('/api/superadmin/licence', async (req) => {
+  requireSuperadmin(superadminToken(req))
+  const status = installLicence((req.body as { key: string }).key ?? '', null)
+  broadcast('licence.changed', { state: status.state })
+  return status
 })
 
 app.post('/api/superadmin/password', async (req) => {
@@ -667,9 +699,9 @@ if (uiDir) {
  */
 export async function startServer(opts: { port?: number; pretty?: boolean } = {}) {
   migrateDb()
-  // A fresh install has migrated tables and nothing in them, which is not a
-  // usable state: pricing throws "settings missing", and with no employee there
-  // is nobody to sign in as — and masters can only be created once signed in.
+  // A fresh install has migrated tables and nothing in them: pricing throws
+  // "settings missing" without the settings row. No admin is created — the
+  // cashier UI opens on first-time setup, where the superadmin adds one.
   // seedMinimal is a no-op once a settings row exists, so this runs exactly once
   // in the life of an installation.
   seedMinimal()

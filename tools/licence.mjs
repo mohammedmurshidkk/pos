@@ -8,7 +8,10 @@
  *
  *   node tools/licence.mjs sign --install <id> --customer "Al Manzil" --days 365 [--plan paid|trial]
  *       Prints a licence key for one installation. The install id is shown on the
- *       counter PC under Licence.
+ *       counter PC under Licence. --hours <n> or --minutes <n> instead of --days
+ *       make short keys for testing expiry.
+ *
+ *   No terminal? Open tools/licence-generator.html — same keys, in the browser.
  *
  *   node tools/licence.mjs inspect <key>
  *       Decodes a key without verifying it — for support calls.
@@ -47,11 +50,13 @@ if (command === 'keygen') {
 } else if (command === 'sign') {
   const installId = arg('install')
   const customer = arg('customer')
-  const days = Number(arg('days'))
+  const unit = ['days', 'hours', 'minutes'].find((u) => arg(u) !== undefined)
+  const amount = Number(unit ? arg(unit) : NaN)
   const plan = arg('plan') ?? 'paid'
-  if (!installId || !customer || !Number.isFinite(days) || days <= 0) {
-    die('usage: sign --install <id> --customer "<name>" --days <n> [--plan paid|trial]')
+  if (!installId || !customer || !Number.isFinite(amount) || amount <= 0) {
+    die('usage: sign --install <id> --customer "<name>" (--days|--hours|--minutes) <n> [--plan paid|trial]')
   }
+  const durationMs = amount * { days: 86_400_000, hours: 3_600_000, minutes: 60_000 }[unit]
   if (!['paid', 'trial'].includes(plan)) die('--plan must be paid or trial')
   if (!existsSync(PRIVATE)) die(`no signing key at ${PRIVATE} — run keygen first`)
 
@@ -62,12 +67,12 @@ if (command === 'keygen') {
     customer,
     plan,
     issuedAt: now,
-    expiresAt: now + days * 86_400_000,
+    expiresAt: now + durationMs,
   }
   const body = b64url(JSON.stringify(payload))
   const signature = sign(null, Buffer.from(body), createPrivateKey(readFileSync(PRIVATE)))
   console.log(`POS1.${body}.${b64url(signature)}`)
-  console.error(`\n${customer} · ${plan} · expires ${new Date(payload.expiresAt).toDateString()}`)
+  console.error(`\n${customer} · ${plan} · expires ${new Date(payload.expiresAt).toLocaleString()}`)
 } else if (command === 'inspect') {
   const [prefix, body] = String(positional ?? '').split('.')
   if (prefix !== 'POS1' || !body) die('not a POS1 licence key')

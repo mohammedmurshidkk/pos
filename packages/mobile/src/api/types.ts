@@ -44,7 +44,7 @@ export interface Bootstrap {
   modifiers: Modifier[]
   itemModifierGroups: ItemModifierGroup[]
   /** Enough for a banner — the key and install id never reach a tablet. */
-  licence?: { state: 'trial' | 'active' | 'expired'; plan: 'trial' | 'paid'; daysLeft: number; warning: boolean; expiresAt: string }
+  licence?: { state: 'unlicensed' | 'trial' | 'active' | 'expired'; plan: 'trial' | 'paid' | null; daysLeft: number; warning: boolean; expiresAt: string | null }
 }
 
 export interface OrderLine {

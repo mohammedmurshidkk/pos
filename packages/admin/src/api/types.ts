@@ -56,18 +56,20 @@ export interface Bootstrap {
   employees: Employee[]
   counters: Counter[]
   paymentModes: PaymentMode[]
-  licence?: { state: LicenceState; plan: 'trial' | 'paid'; daysLeft: number; warning: boolean; expiresAt: string }
+  licence?: { state: LicenceState; plan: 'trial' | 'paid' | null; daysLeft: number; msLeft: number; warning: boolean; expiresAt: string | null }
 }
 
-export type LicenceState = 'trial' | 'active' | 'expired'
+/** `unlicensed`: a fresh install — no trial granted, no key. Blocks new orders like `expired`. */
+export type LicenceState = 'unlicensed' | 'trial' | 'active' | 'expired'
 
 export interface LicenceStatus {
   state: LicenceState
-  plan: 'trial' | 'paid'
+  plan: 'trial' | 'paid' | null
   customer: string | null
   installId: string
-  expiresAt: string
+  expiresAt: string | null
   daysLeft: number
+  msLeft: number
   warning: boolean
   clockRolledBack: boolean
 }

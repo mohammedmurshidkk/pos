@@ -54,7 +54,7 @@ const employee = z.object({
   name,
   role: z.enum(['admin', 'waiter']),
   /** Plain text on the way in only; hashed before it touches the database. */
-  pin: z.string().regex(/^\d{4,6}$/, 'A PIN must be 4 to 6 digits').optional(),
+  pin: z.string().regex(/^\d{4}$/, 'A PIN must be 4 digits').optional(),
   canDiscount: z.boolean().default(false),
   maxDiscountPercent: z.number().int().min(0).max(100).default(0),
   canSaveWithoutKot: z.boolean().default(false),

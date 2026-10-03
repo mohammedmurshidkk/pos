@@ -57,6 +57,13 @@
       "when": 1789987553615,
       "tag": "0007_late_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791040066709,
+      "tag": "0008_stiff_avengers",
+      "breakpoints": true
     }
   ]
 }

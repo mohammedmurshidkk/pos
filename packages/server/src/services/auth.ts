@@ -84,11 +84,27 @@ export function login(employeeId: string, pin: string) {
 }
 
 export function setPin(employeeId: string, pin: string, byEmployeeId: string) {
-  if (!/^\d{4,6}$/.test(pin)) throw forbidden('A PIN must be 4 to 6 digits.')
+  if (!/^\d{4}$/.test(pin)) throw forbidden('A PIN must be 4 digits.')
   const employee = db.select().from(s.employees).where(eq(s.employees.id, employeeId)).get()
   if (!employee) throw notFound('employee')
 
   db.update(s.employees).set({ pinHash: hashPin(pin) }).where(eq(s.employees.id, employeeId)).run()
   audit(byEmployeeId, 'auth.set_pin', 'employee', employeeId, null)
   return { ok: true }
+}
+
+/**
+ * An admin changing their own PIN — e.g. replacing the starting PIN the
+ * superadmin gave them. Needs the current PIN, so a cashier who walks up to a
+ * signed-in till cannot quietly take the account over.
+ */
+export function changeOwnPin(employeeId: string, currentPin: string, newPin: string) {
+  const employee = db.select().from(s.employees).where(eq(s.employees.id, employeeId)).get()
+  if (!employee || !employee.active) throw notFound('employee')
+  if (!verifyPin(currentPin, employee.pinHash)) {
+    audit(employeeId, 'auth.change_pin_failed', 'employee', employeeId, null)
+    throw forbidden('The current PIN is wrong.')
+  }
+  if (currentPin === newPin) throw forbidden('Choose a PIN different from the current one.')
+  return setPin(employeeId, newPin, employeeId)
 }

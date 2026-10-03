@@ -1,0 +1,311 @@
+<!doctype html>
+<!--
+  Licence generator — VENDOR ONLY. Never ship this with the app, never host it.
+
+  Double-click to open in Chrome, Edge or Safari. Everything happens inside the
+  page: the signing key is read from the .pem file you pick, used in memory, and
+  forgotten when the tab closes. Nothing is stored, nothing is sent anywhere.
+
+  It makes the same keys as `node tools/licence.mjs sign` (POS1.<payload>.<sig>,
+  Ed25519 over the base64url payload) — a test in packages/server checks that
+  the hub accepts what this page produces.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Licence Generator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-alt: #f1f3f6; --border: #dde1e7; --border-strong: #c3c9d2;
+    --text: #17202b; --muted: #5b6573; --primary: #1d5fd1; --on-primary: #ffffff;
+    --success: #1f7a4d; --warning: #9a6200; --danger: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f141a; --surface: #171e26; --surface-alt: #1e2731; --border: #2a3541; --border-strong: #3a4756;
+      --text: #e6ebf1; --muted: #9aa6b4; --primary: #6ea2ff; --on-primary: #0b1220;
+      --success: #4cc38a; --warning: #e0a32e; --danger: #ff7a6e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f141a; --surface: #171e26; --surface-alt: #1e2731; --border: #2a3541; --border-strong: #3a4756;
+    --text: #e6ebf1; --muted: #9aa6b4; --primary: #6ea2ff; --on-primary: #0b1220;
+    --success: #4cc38a; --warning: #e0a32e; --danger: #ff7a6e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; display: grid; gap: 16px; }
+  h1 { margin: 0; font-size: 24px; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: grid; gap: 12px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); flex: 1; min-width: 140px; }
+  input, select, textarea {
+    font: inherit; color: var(--text); background: var(--surface); width: 100%;
+    border: 1px solid var(--border-strong); border-radius: 8px; padding: 9px 11px;
+  }
+  textarea { font-family: ui-monospace, Menlo, monospace; font-size: 13px; resize: vertical; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 9px 16px;
+    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  }
+  button.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { padding: 10px 12px; border-radius: 8px; border: 1px solid; font-size: 14px; }
+  .status.ok { color: var(--success); border-color: var(--success); }
+  .status.err { color: var(--danger); border-color: var(--danger); }
+  .status.warn { color: var(--warning); border-color: var(--warning); }
+  .output { background: var(--surface-alt); word-break: break-all; }
+  details summary { cursor: pointer; font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Licence generator</h1>
+    <div class="muted">Vendor only. Your signing key is used inside this page and never leaves this computer.</div>
+  </div>
+
+  <section class="card">
+    <div>
+      <h2>1 · Signing key</h2>
+      <div class="muted small">Pick <code>licence-private.pem</code> (normally in <code>~/.almanzil-pos/</code>). It is read into memory only.</div>
+    </div>
+    <div class="row">
+      <label>Private key file
+        <input id="pem" type="file" accept=".pem,.key,.txt">
+      </label>
+    </div>
+    <div id="key-status" class="status warn">No signing key loaded.</div>
+    <details id="pub-wrap" hidden>
+      <summary>Public key for this signing key</summary>
+      <p class="muted small">Must match <code>packages/server/src/licence-public-key.ts</code>, otherwise the hub rejects every key as "not valid".</p>
+      <textarea id="pub" rows="4" readonly></textarea>
+    </details>
+  </section>
+
+  <section class="card">
+    <div>
+      <h2>2 · Licence</h2>
+      <div class="muted small">The install ID is on the hub under Licence (or the superadmin Licence tab).</div>
+    </div>
+    <label>Install ID
+      <input id="install" placeholder="7bc572f8-e7b8-4275-81ec-0fb2fcd38057" spellcheck="false" autocomplete="off">
+    </label>
+    <div class="row">
+      <label>Customer
+        <input id="customer" placeholder="Al Manzil" autocomplete="off">
+      </label>
+      <label style="max-width: 160px">Plan
+        <select id="plan"><option value="paid">Paid</option><option value="trial">Trial</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label style="max-width: 160px">Valid for
+        <input id="value" type="number" min="1" step="1" value="10">
+      </label>
+      <label style="max-width: 160px">Unit
+        <select id="unit">
+          <option value="minutes" selected>Minutes</option>
+          <option value="hours">Hours</option>
+          <option value="days">Days</option>
+        </select>
+      </label>
+      <button id="make" class="primary" disabled>Generate key</button>
+    </div>
+    <div id="make-status" class="status" hidden></div>
+    <div id="result" hidden>
+      <textarea id="licence" class="output" rows="5" readonly></textarea>
+      <div class="row" style="justify-content: flex-end; margin-top: 8px">
+        <button id="copy">Copy key</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Check a key</summary>
+      <p class="muted small">Decodes a key someone sent you. If a signing key is loaded, the signature is checked too.</p>
+      <textarea id="inspect-in" rows="4" placeholder="POS1.…" spellcheck="false"></textarea>
+      <div class="row" style="justify-content: flex-end; margin-top: 8px"><button id="inspect">Check</button></div>
+      <div id="inspect-out" class="status" hidden></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>No signing key yet? Create one</summary>
+      <p class="muted small">
+        Do this <strong>once</strong>. It downloads <code>licence-private.pem</code> — move it to
+        <code>~/.almanzil-pos/</code> and back it up somewhere safe; lose it and no installed shop can be renewed.
+        Then put the public key shown below into <code>packages/server/src/licence-public-key.ts</code> and rebuild.
+        Replacing an existing key invalidates every licence already issued.
+      </p>
+      <div class="row"><button id="gen">Create signing key</button></div>
+      <textarea id="gen-pub" rows="4" readonly hidden></textarea>
+    </details>
+  </section>
+</main>
+
+<!-- Pure functions only: no DOM. A server test runs this block against the hub's verifier. -->
+<script id="licence-core">
+const UNIT_MS = { minutes: 60000, hours: 3600000, days: 86400000 }
+const SPKI_PREFIX = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]
+
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+const b64url = (bytes) => bytesToB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const fromB64url = (s) => b64ToBytes(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4))
+
+function derToPem(der, label) {
+  const lines = bytesToB64(der).match(/.{1,64}/g).join('\n')
+  return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----\n`
+}
+
+function pemToDer(pem) {
+  const m = /-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/.exec(pem)
+  if (!m) throw new Error('That file is not a private key (expected "BEGIN PRIVATE KEY").')
+  return b64ToBytes(m[1].replace(/\s+/g, ''))
+}
+
+/** Read the vendor's PKCS#8 PEM. Returns the signing key and its public half as SPKI PEM. */
+async function importPrivatePem(pem) {
+  let key
+  try {
+    key = await crypto.subtle.importKey('pkcs8', pemToDer(pem), { name: 'Ed25519' }, true, ['sign'])
+  } catch (e) {
+    throw new Error(e.message.startsWith('That file') ? e.message : 'That is not an Ed25519 signing key.')
+  }
+  const { x } = await crypto.subtle.exportKey('jwk', key)
+  const spki = new Uint8Array([...SPKI_PREFIX, ...fromB64url(x)])
+  return { privateKey: key, publicPem: derToPem(spki, 'PUBLIC KEY') }
+}
+
+/** A brand-new signing keypair, as PEM text. */
+async function generateKeypair() {
+  const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])
+  return {
+    privatePem: derToPem(await crypto.subtle.exportKey('pkcs8', pair.privateKey), 'PRIVATE KEY'),
+    publicPem: derToPem(await crypto.subtle.exportKey('spki', pair.publicKey), 'PUBLIC KEY'),
+  }
+}
+
+/** Same payload, field order and encoding as tools/licence.mjs. */
+async function makeLicence({ privateKey, installId, customer, plan, value, unit, now = Date.now() }) {
+  installId = String(installId || '').trim()
+  customer = String(customer || '').trim()
+  const n = Number(value)
+  if (!installId) throw new Error('Enter the install ID.')
+  if (!customer) throw new Error('Enter the customer name.')
+  if (!['paid', 'trial'].includes(plan)) throw new Error('Plan must be paid or trial.')
+  if (!(unit in UNIT_MS)) throw new Error('Choose minutes, hours or days.')
+  if (!Number.isInteger(n) || n <= 0) throw new Error('Enter a whole number greater than 0.')
+  const payload = { v: 1, installId, customer, plan, issuedAt: now, expiresAt: now + n * UNIT_MS[unit] }
+  const body = b64url(new TextEncoder().encode(JSON.stringify(payload)))
+  const sig = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, new TextEncoder().encode(body))
+  return { key: `POS1.${body}.${b64url(sig)}`, payload }
+}
+
+/** Decode a key; checks the signature when a public key (CryptoKey) is given. */
+async function inspectLicence(key, publicKey) {
+  const [prefix, body, sig] = String(key).trim().split('.')
+  if (prefix !== 'POS1' || !body || !sig) throw new Error('That is not a POS1 licence key.')
+  const payload = JSON.parse(new TextDecoder().decode(fromB64url(body)))
+  const valid = publicKey
+    ? await crypto.subtle.verify({ name: 'Ed25519' }, publicKey, fromB64url(sig), new TextEncoder().encode(body))
+    : null
+  return { payload, valid }
+}
+</script>
+
+<script>
+const $ = (id) => document.getElementById(id)
+let signer = null
+let verifier = null
+
+const show = (el, text, tone) => { el.hidden = false; el.className = `status ${tone}`; el.textContent = text }
+const when = (ms) => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+if (!crypto.subtle) {
+  show($('key-status'), 'This browser cannot sign here. Open the file in a current Chrome, Edge or Safari.', 'err')
+}
+
+$('pem').addEventListener('change', async (e) => {
+  const file = e.target.files[0]
+  signer = null; verifier = null; $('make').disabled = true; $('pub-wrap').hidden = true
+  if (!file) return show($('key-status'), 'No signing key loaded.', 'warn')
+  try {
+    const { privateKey, publicPem } = await importPrivatePem(await file.text())
+    signer = privateKey
+    const spki = b64ToBytes(publicPem.replace(/-----[^-]+-----|\s+/g, ''))
+    verifier = await crypto.subtle.importKey('spki', spki, { name: 'Ed25519' }, false, ['verify'])
+    $('pub').value = publicPem
+    $('pub-wrap').hidden = false
+    $('make').disabled = false
+    show($('key-status'), `Signing key loaded from ${file.name}.`, 'ok')
+  } catch (err) {
+    show($('key-status'), err.message, 'err')
+  }
+})
+
+$('make').addEventListener('click', async () => {
+  $('result').hidden = true
+  try {
+    const { key, payload } = await makeLicence({
+      privateKey: signer, installId: $('install').value, customer: $('customer').value,
+      plan: $('plan').value, value: $('value').value, unit: $('unit').value,
+    })
+    $('licence').value = key
+    $('result').hidden = false
+    show($('make-status'), `${payload.customer} · ${payload.plan} · valid until ${when(payload.expiresAt)}. The clock starts now — paste it soon.`, 'ok')
+  } catch (err) {
+    show($('make-status'), err.message, 'err')
+  }
+})
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('licence').value)
+    $('copy').textContent = 'Copied'
+  } catch {
+    $('licence').select()
+    $('copy').textContent = 'Press Ctrl+C / ⌘C'
+  }
+  setTimeout(() => { $('copy').textContent = 'Copy key' }, 2000)
+})
+
+$('inspect').addEventListener('click', async () => {
+  try {
+    const { payload, valid } = await inspectLicence($('inspect-in').value, verifier)
+    const left = payload.expiresAt - Date.now()
+    const sigText = valid == null ? 'signature not checked (load a signing key)' : valid ? 'signature valid' : 'SIGNATURE INVALID'
+    show($('inspect-out'),
+      `${payload.customer} · ${payload.plan} · install ${payload.installId} · ` +
+      `${left > 0 ? 'expires' : 'expired'} ${when(payload.expiresAt)} · ${sigText}`,
+      valid === false ? 'err' : left > 0 ? 'ok' : 'warn')
+  } catch (err) {
+    show($('inspect-out'), err.message, 'err')
+  }
+})
+
+$('gen').addEventListener('click', async () => {
+  if (!confirm('Create a NEW signing key? Licences signed with an older key stop working once the app uses the new public key.')) return
+  const { privatePem, publicPem } = await generateKeypair()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([privatePem], { type: 'application/x-pem-file' }))
+  a.download = 'licence-private.pem'
+  a.click()
+  URL.revokeObjectURL(a.href)
+  $('gen-pub').value = publicPem
+  $('gen-pub').hidden = false
+})
+</script>
+</body>
+</html>

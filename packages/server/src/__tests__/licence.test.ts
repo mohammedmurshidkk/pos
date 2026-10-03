@@ -38,39 +38,80 @@ beforeAll(() => {
   counter = db.select().from(s.counters).get()!.id
 })
 
-describe('trial', () => {
-  it('starts a 30-day trial on first check and creates an install id', () => {
+describe('no automatic trial', () => {
+  it('a fresh hub is unlicensed and creates a stable install id', () => {
+    setSettings({ trialStartedAt: null, trialEndsAt: null, licenceKey: null })
     const st = L.licenceStatus()
-    expect(st.state).toBe('trial')
-    expect(st.daysLeft).toBe(L.TRIAL_DAYS)
+    expect(st.state).toBe('unlicensed')
+    expect(st.expiresAt).toBeNull()
     expect(st.installId).toMatch(/^[0-9a-f-]{36}$/)
     expect(L.licenceStatus().installId).toBe(st.installId) // stable
+    // Asking for the status must not quietly start a trial.
+    expect(db.select().from(s.settings).get()!.trialEndsAt).toBeNull()
+  })
+
+  it('blocks new orders and new shifts until a trial or key arrives', () => {
+    expect(() => createOrder({ type: 'takeaway', createdBy: admin })).toThrow(/no licence or trial/i)
+    expect(() => openShift({ counterId: counter, employeeId: admin, openingFloat: 0 })).toThrow(/no licence or trial/i)
+  })
+})
+
+describe('superadmin trial', () => {
+  it('grants a trial in minutes, hours or days, counted from now', () => {
+    const t0 = Date.now()
+    expect(L.grantTrial(10, 'minutes', t0).msLeft).toBe(10 * 60_000)
+    expect(L.grantTrial(3, 'hours', t0).msLeft).toBe(3 * 3_600_000)
+    const st = L.grantTrial(30, 'days', t0)
+    expect(st.state).toBe('trial')
+    expect(st.plan).toBe('trial')
+    expect(st.daysLeft).toBe(30)
+    const order = createOrder({ type: 'takeaway', createdBy: admin })!
+    // An unsettled order would let an expired hub open a shift later in the file.
+    db.delete(s.orders).where(eq(s.orders.id, order.id)).run()
+  })
+
+  it('a 5-minute trial runs out after 5 minutes', () => {
+    const t0 = Date.now()
+    L.grantTrial(5, 'minutes', t0)
+    expect(L.licenceStatus(t0 + 4 * 60_000).state).toBe('trial')
+    expect(L.licenceStatus(t0 + 5 * 60_000 + 1).state).toBe('expired')
+  })
+
+  it('0 ends the trial now — for testing expiry', () => {
+    expect(L.grantTrial(0, 'minutes').state).toBe('expired')
+  })
+
+  it('rejects nonsense and over-long grants', () => {
+    expect(() => L.grantTrial(-1, 'days')).toThrow(/whole number/i)
+    expect(() => L.grantTrial(1.5, 'hours')).toThrow(/whole number/i)
+    expect(() => L.grantTrial(1, 'weeks' as never)).toThrow(/minutes, hours or days/i)
+    expect(() => L.grantTrial(400, 'days')).toThrow(/at most 366 days/i)
   })
 
   it('warns in the last week', () => {
-    setSettings({ trialStartedAt: new Date(Date.now() - 25 * DAY) })
-    const st = L.licenceStatus()
+    const st = L.grantTrial(5, 'days')
     expect(st.daysLeft).toBe(5)
     expect(st.warning).toBe(true)
   })
 
-  it('expires after 30 days', () => {
-    setSettings({ trialStartedAt: new Date(Date.now() - 31 * DAY) })
-    expect(L.licenceStatus().state).toBe('expired')
+  it('audits each grant', () => {
+    const rows = db.select().from(s.auditLog).all().filter((r) => r.action === 'superadmin.grant_trial')
+    expect(rows.length).toBeGreaterThan(0)
+    expect(JSON.parse(rows.at(-1)!.detailJson!)).toMatchObject({ value: 5, unit: 'days' })
   })
 })
 
 describe('expiry never hard-locks service', () => {
   it('blocks new orders and new shifts once expired', () => {
-    setSettings({ trialStartedAt: new Date(Date.now() - 31 * DAY) })
+    setSettings({ trialEndsAt: new Date(Date.now() - DAY) })
     expect(() => createOrder({ type: 'takeaway', createdBy: admin })).toThrow(/trial has ended/i)
     expect(() => openShift({ counterId: counter, employeeId: admin, openingFloat: 0 })).toThrow(/new shift/i)
   })
 
   it('still opens a shift while an order is waiting to be settled, so the table can pay', () => {
-    setSettings({ trialStartedAt: new Date(Date.now() - 5 * DAY) })
+    setSettings({ trialEndsAt: new Date(Date.now() + 25 * DAY) })
     const waiting = createOrder({ type: 'takeaway', createdBy: admin })!
-    setSettings({ trialStartedAt: new Date(Date.now() - 31 * DAY) })
+    setSettings({ trialEndsAt: new Date(Date.now() - DAY) })
     try {
       const shift = openShift({ counterId: counter, employeeId: admin, openingFloat: 0 })
       expect(shift.closedAt).toBeNull()
@@ -96,7 +137,7 @@ describe('expiry never hard-locks service', () => {
 
 describe('clock rollback', () => {
   it('cannot rewind expiry by setting the PC clock back', () => {
-    setSettings({ trialStartedAt: new Date(Date.now() - 20 * DAY), licenceKey: null, clockHighWater: null })
+    setSettings({ trialEndsAt: new Date(Date.now() + 10 * DAY), licenceKey: null, clockHighWater: null })
     L.licenceStatus() // records now as the high-water mark
     // Pretend the clock has been wound back 15 days.
     const st = L.licenceStatus(Date.now() - 15 * DAY)
@@ -149,5 +190,18 @@ describe('licence keys', () => {
     const rows = db.select().from(s.auditLog).all().filter((r) => r.action === 'licence.install')
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.every((r) => !(r.detailJson ?? '').includes('POS1.'))).toBe(true)
+  })
+})
+
+describe('paid key and trial together', () => {
+  it('whichever runs later wins, so a trial can bridge a lapsed key', () => {
+    const { installId } = L.licenceStatus()
+    L.installLicence(makeKey({ installId, expiresAt: Date.now() + 2 * DAY }), null)
+    L.grantTrial(1, 'days')
+    expect(L.licenceStatus().plan).toBe('paid') // key ends later
+    L.grantTrial(10, 'days')
+    const st = L.licenceStatus()
+    expect(st.plan).toBe('trial')
+    expect(st.daysLeft).toBe(10)
   })
 })

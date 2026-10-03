@@ -133,9 +133,12 @@ export function seed() {
 
   db.insert(s.settings).values({
     id: 'singleton',
-    // Demo only. A real install gets a random one from seedMinimal, and either
-    // can be changed with `pnpm superadmin:set`.
+    // Demo only. A real install has no password until first-time setup sets
+    // one; either can be changed with `pnpm superadmin:set`.
     superadminHash: hashPin('superadmin1'),
+    // Demo only: a real install has no trial until the superadmin grants one.
+    trialStartedAt: new Date(),
+    trialEndsAt: new Date(Date.now() + 30 * 86_400_000),
     businessName: 'Al Manzil Restaurant',
     addressLine: 'Al Barsha 1, Dubai, UAE',
     phone: '+971 4 399 1234',
@@ -161,7 +164,7 @@ export function seed() {
     pairToken: 'local', defaultCounterId: counter1,
   }).run()
 
-  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 2 modifier groups, 22 tables, 5 employees (admin PINs 1234 / 4321, superadmin "superadmin1")')
+  console.log('seeded Al Manzil: 4 printers, 3 kitchens, 4 categories, 12 items, 2 modifier groups, 22 tables, 5 employees (admin PINs 1234 / 4321, superadmin "superadmin1"), 30-day trial')
 }
 
 // Only auto-run when invoked directly (`pnpm seed`), so tests can import it.
