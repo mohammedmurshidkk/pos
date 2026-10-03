@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { BrowserWindow, Menu, Tray, app, dialog, nativeImage, shell } from 'electron'
 
@@ -32,8 +33,32 @@ if (!app.requestSingleInstanceLock()) {
   void main()
 }
 
-/** Startup progress goes to stdout so a support call can ask for the log. */
-const log = (...args: unknown[]) => { console.log('[pos]', ...args) }
+const URL_ = `http://127.0.0.1:${PORT}/`
+
+/**
+ * Startup progress goes to stdout AND to <data folder>/logs/main.log. A packaged
+ * Windows app has no console, so without the file a failure on a shop PC (or a
+ * test VM) leaves nothing to read but a generic Chromium error code.
+ */
+const logFile = path.join(app.getPath('userData'), 'logs', 'main.log')
+try {
+  mkdirSync(path.dirname(logFile), { recursive: true })
+  // Start fresh once it passes 1 MB — enough history for one support call.
+  if ((statSync(logFile, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) writeFileSync(logFile, '')
+} catch { /* logging must never stop the till */ }
+
+const log = (...args: unknown[]) => {
+  console.log('[pos]', ...args)
+  const text = args.map((a) => (a instanceof Error ? a.stack ?? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
+  try { appendFileSync(logFile, `${new Date().toISOString()} ${text}\n`) } catch { /* see above */ }
+}
+
+// Chromium helper processes (network, GPU, renderer) crashing shows up in the
+// window only as ERR_FAILED. Record which one died and why.
+app.on('child-process-gone', (_e, d) => {
+  log('child process gone', { type: d.type, reason: d.reason, exitCode: d.exitCode, name: d.name ?? d.serviceName })
+})
+app.on('render-process-gone', (_e, _wc, d) => { log('renderer gone', { reason: d.reason, exitCode: d.exitCode }) })
 
 async function main() {
   await app.whenReady()
@@ -50,6 +75,9 @@ async function main() {
   process.env.POS_UI_DIR = path.join(__dirname, 'ui')
 
   log('data folder', dataDir)
+  log('app', { version: app.getVersion(), platform: process.platform, arch: process.arch,
+    // x64 build running through emulation on ARM Windows (or Rosetta).
+    emulated: app.runningUnderARM64Translation, electron: process.versions.electron })
   createWindow()
   createTray()
 
@@ -59,12 +87,34 @@ async function main() {
     const { startServer } = await import('@pos/server')
     await startServer({ port: PORT, pretty: false })
     log('hub listening on', PORT)
-    // Not loadFile: from file:// the UI's relative /api calls never reach the hub.
-    await window?.loadURL(`http://127.0.0.1:${PORT}/`)
-    log('ui loaded')
   } catch (err) {
     log('startup failed', err)
     showStartupFailure(err)
+    return
+  }
+
+  // The hub is up from here on, and tablets can use it whatever the window does.
+  // So a window that cannot show the UI must not take the hub down with it.
+  try {
+    await loadUi()
+    log('ui loaded')
+  } catch (err) {
+    log('window could not load the UI', err)
+    showUiFallback(err)
+  }
+}
+
+/** Not loadFile: from file:// the UI's relative /api calls never reach the hub. */
+async function loadUi(attempts = 3) {
+  for (let i = 1; ; i++) {
+    try {
+      await window?.loadURL(URL_)
+      return
+    } catch (err) {
+      log(`load attempt ${i} failed`, err)
+      if (i >= attempts) throw err
+      await new Promise((r) => setTimeout(r, 1000))
+    }
   }
 }
 
@@ -78,6 +128,10 @@ function createWindow() {
     title: 'Al Manzil POS',
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
+  })
+
+  window.webContents.on('did-fail-load', (_e, code, description, url) => {
+    log('did-fail-load', { code, description, url })
   })
 
   // Closing the window must not stop the till — a waiter's tablet is still
@@ -116,14 +170,35 @@ function buildTray() {
     { label: `Hub running on port ${PORT}`, enabled: false },
     { type: 'separator' },
     { label: 'Open', click: () => { window?.show(); window?.focus() } },
+    { label: 'Open in web browser', click: () => { void shell.openExternal(URL_) } },
     {
       label: 'Open data folder',
       click: () => { void shell.openPath(app.getPath('userData')) },
     },
+    { label: 'Open log', click: () => { void shell.openPath(logFile) } },
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit() } },
   ]))
   tray.on('click', () => { window?.show(); window?.focus() })
+}
+
+/**
+ * The hub is running but this window cannot show it (seen on Windows ARM running
+ * the x64 build under emulation). Keep the hub up and use the real browser —
+ * the UI is the same page either way.
+ */
+function showUiFallback(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err)
+  window?.hide()
+  void shell.openExternal(URL_)
+  void dialog.showMessageBox({
+    type: 'warning',
+    title: 'Al Manzil POS',
+    message: 'The POS is running, but its window could not open the screen.',
+    detail: `It has been opened in your web browser instead: ${URL_}\n\n` +
+      `Tablets can connect as normal. Use the tray icon → "Open in web browser" to get back to it.\n\n` +
+      `${message}\n\nLog: ${logFile}\nSend the log to support if this keeps happening.`,
+  })
 }
 
 /** A blank window tells the owner nothing. Say what failed and where to look. */
@@ -131,7 +206,7 @@ function showStartupFailure(err: unknown) {
   const message = err instanceof Error ? err.message : String(err)
   dialog.showErrorBox(
     'Al Manzil POS could not start',
-    `${message}\n\nData folder:\n${app.getPath('userData')}\n\n` +
+    `${message}\n\nData folder:\n${app.getPath('userData')}\nLog: ${logFile}\n\n` +
     'If this keeps happening, send this message to support.',
   )
   quitting = true
