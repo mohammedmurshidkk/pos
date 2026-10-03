@@ -1,4 +1,4 @@
-import type { Bootstrap, Device, LicenceStatus, Order, PrintJob, Printer, ZReport } from './types'
+import type { Bootstrap, Device, LicenceStatus, MenuImportPlan, MenuImportRow, Order, PrintJob, Printer, Settings, SettingsPatch, ZReport } from './types'
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) {
@@ -103,7 +103,7 @@ export const api = {
   settle: (orderId: string, body: {
     payments: { paymentModeId: string; amount: number; refNo?: string | null }[]
     employeeId: string; counterId: string
-  }) => post<{ settled: boolean; paid: number; changeDue?: number; balanceDue?: number; invoiceNo?: number | null }>(
+  }) => post<{ settled: boolean; paid: number; changeDue?: number; balanceDue?: number; invoiceNo?: number | null; printed?: boolean }>(
     `/api/orders/${orderId}/settle`, body,
   ),
 
@@ -119,7 +119,7 @@ export const api = {
   retryJobs: (printerId?: string) => post<{ retried: number }>('/api/print-jobs/retry', { printerId }),
 
   currentShift: (counterId: string) =>
-    request<{ shiftId: string | null; open: boolean }>(`/api/shifts/current?counterId=${counterId}`),
+    request<{ shiftId: string | null; open: boolean; canOpen: boolean }>(`/api/shifts/current?counterId=${counterId}`),
   openShift: (body: { counterId: string; employeeId: string; openingFloat: number }) =>
     post<{ id: string }>('/api/shifts/open', body),
   zReport: (shiftId: string) => request<ZReport>(`/api/shifts/${shiftId}/z-report`),
@@ -155,8 +155,10 @@ export const api = {
     ),
   bulkTables: (body: { areaId: string; prefix: string; from: number; to: number; seats: number }, employeeId: string) =>
     post<{ added: number; skipped: number }>('/api/masters/tables/bulk', { ...body, employeeId }),
-  updateSettings: (body: Record<string, unknown>, employeeId: string) =>
-    request<unknown>('/api/settings', { method: 'PATCH', body: JSON.stringify({ ...body, employeeId }) }),
+  importMenu: (rows: MenuImportRow[], dryRun: boolean, employeeId: string) =>
+    post<MenuImportPlan>('/api/masters/menu/import', { rows, dryRun, employeeId }),
+  updateSettings: (body: SettingsPatch, employeeId: string) =>
+    request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify({ ...body, employeeId }) }),
 
   report: <T>(kind: string, params: Record<string, string> = {}) =>
     request<{ range: { label: string }; data: T }>(

@@ -1,2 +1,10 @@
 packages:
   - 'packages/*'
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+# Metro cannot resolve pnpm's symlinked modules. pnpm 11+ reads this here,
+# not from .npmrc (which is kept for older pnpm).
+nodeLinker: hoisted

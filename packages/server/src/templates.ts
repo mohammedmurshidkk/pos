@@ -17,7 +17,6 @@ export interface KotPayload {
 }
 
 export interface BillPayload {
-  isTaxInvoice: boolean
   businessName: string
   addressLine: string
   phone: string
@@ -45,6 +44,8 @@ export interface BillPayload {
   total: number
   payments?: { name: string; amount: number }[]
   footer: string
+  /** Settled in cash: pop the drawer as the paper comes out. */
+  openDrawer?: boolean
 }
 
 export interface ZReportPayload {
@@ -122,9 +123,14 @@ export function renderKot(p: KotPayload, widthMm: number): Buffer {
 }
 
 /**
- * Customer document. Two shapes from one template:
- *   BILL        — no invoice number, printed from tablet or counter, reprintable
- *   TAX INVOICE — gapless number, TRN, issued at settlement
+ * The one customer document: the bill, printed as a TAX INVOICE.
+ *
+ * Gapless invoice number, TRN and VAT breakdown from the first print, whether
+ * a waiter prints it on a tablet or the cashier at the counter. Payments are
+ * listed when it is printed (or reprinted) after settlement.
+ *
+ * Old `print_jobs` rows may still carry `kind: 'invoice'` and an
+ * `isTaxInvoice` field; they render the same way.
  */
 export function renderBill(p: BillPayload, widthMm: number): Buffer {
   const cols = colsFor(widthMm)
@@ -134,9 +140,9 @@ export function renderBill(p: BillPayload, widthMm: number): Buffer {
   r.center(p.businessName, true)
   if (p.addressLine) r.center(p.addressLine)
   if (p.phone) r.center(p.phone)
-  if (p.isTaxInvoice && p.taxNumberValue) r.center(`${p.taxNumberLabel}: ${p.taxNumberValue}`)
+  if (p.taxNumberValue) r.center(`${p.taxNumberLabel}: ${p.taxNumberValue}`)
   r.line()
-  r.center(p.isTaxInvoice ? 'TAX INVOICE' : 'BILL', true)
+  r.center('TAX INVOICE', true)
 
   if (p.reprintCount > 0) {
     r.center(p.wasEditedAfterPrint ? 'REVISED' : `REPRINT #${p.reprintCount + 1}`, true)
@@ -161,10 +167,8 @@ export function renderBill(p: BillPayload, widthMm: number): Buffer {
   r.kv('Subtotal', money(p.subtotal))
   if (p.discountAmount > 0) r.kv('Discount', `-${money(p.discountAmount)}`)
   if (p.serviceCharge > 0) r.kv('Service Charge', money(p.serviceCharge))
-  if (p.isTaxInvoice) {
-    r.kv('Net', money(p.net))
-    r.kv(`${p.taxName} ${p.taxRatePct}%`, money(p.tax))
-  }
+  r.kv('Net', money(p.net))
+  r.kv(`${p.taxName} ${p.taxRatePct}%`, money(p.tax))
   r.rule('=')
   r.kv('TOTAL', `${p.currencyDisplay} ${money(p.total)}`, true)
 
@@ -175,7 +179,7 @@ export function renderBill(p: BillPayload, widthMm: number): Buffer {
 
   r.line()
   if (p.footer) r.center(p.footer)
-  if (!p.isTaxInvoice) r.center('Not a tax invoice - please settle at the counter')
+  if (p.openDrawer) r.kick()
   return r.cut().toBuffer()
 }
 
@@ -270,6 +274,9 @@ export function renderJob(kind: string, payload: unknown, widthMm: number): Buff
     case 'bill':
     case 'invoice':
       return renderBill(payload as BillPayload, widthMm)
+    case 'drawer':
+      // Cash taken against a bill already printed: open the drawer, no paper.
+      return new Receipt(colsFor(widthMm)).kick().toBuffer()
     case 'report':
       return renderZReport(payload as ZReportPayload, widthMm)
     case 'test':

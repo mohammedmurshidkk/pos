@@ -185,6 +185,64 @@ describe('kitchen column', () => {
   })
 })
 
+describe('kitchen routing safety', () => {
+  const kitchens = () => db.select().from(s.kitchens).all()
+
+  it('refuses one new category sent to two kitchens', () => {
+    const [a, b] = kitchens()
+    const plan = run([
+      { category: 'Split', item: 'One', price: '1.00', kitchen: a!.name, line: 2 },
+      { category: 'Split', item: 'Two', price: '1.00', kitchen: b!.name, line: 3 },
+    ])
+    expect(plan.applied).toBe(false)
+    expect(plan.errors).toEqual([
+      { row: 3, message: expect.stringMatching(new RegExp(`"Split" goes to "${a!.name}" on row 2`)) },
+    ])
+  })
+
+  it('lets the kitchen appear on any one line of the category', () => {
+    const [a] = kitchens()
+    const plan = run([
+      { category: 'Later Kitchen', item: 'One', price: '1.00' },
+      { category: 'Later Kitchen', item: 'Two', price: '1.00', kitchen: a!.name },
+    ])
+    expect(plan.errors).toEqual([])
+    expect(categoryNamed('Later Kitchen')!.kitchenId).toBe(a!.id)
+  })
+
+  it('reports against the line number the caller sent', () => {
+    const plan = run([{ category: 'Lines', item: 'X', price: 'abc', line: 17 }], true)
+    expect(plan.errors[0]!.row).toBe(17)
+  })
+
+  it('warns when a disabled category receives items', () => {
+    run([{ category: 'Off Menu', item: 'First', price: '1.00' }])
+    db.update(s.categories).set({ active: false }).where(eq(s.categories.name, 'Off Menu')).run()
+
+    const plan = run([
+      { category: 'Off Menu', item: 'Second', price: '1.00' },
+      { category: 'Off Menu', item: 'Third', price: '1.00' },
+    ], true)
+    expect(plan.warnings).toEqual([{ row: 1, message: expect.stringMatching(/"Off Menu" is disabled/) }])
+  })
+
+  it('warns when a new category has no kitchen and there is no default', () => {
+    const before = db.select().from(s.settings).get()!.defaultKitchenId
+    db.update(s.settings).set({ defaultKitchenId: null }).run()
+    try {
+      const plan = run([{ category: 'Homeless', item: 'X', price: '1.00' }], true)
+      expect(plan.warnings).toEqual([{ row: 1, message: expect.stringMatching(/no default kitchen is set/) }])
+    } finally {
+      db.update(s.settings).set({ defaultKitchenId: before }).run()
+    }
+  })
+
+  it('does not warn about a missing kitchen when a default exists', () => {
+    const plan = run([{ category: 'Defaulted', item: 'X', price: '1.00' }], true)
+    expect(plan.warnings).toEqual([])
+  })
+})
+
 /* ─────────────────────────── bad input ─────────────────────────── */
 
 describe('validation', () => {
@@ -238,5 +296,42 @@ describe('audit', () => {
 
     run([{ category: 'Audited', item: 'Thing', price: '9.00' }])
     expect(count()).toBe(before + 1)
+  })
+})
+
+/* ─────────────────────────── HTTP route ─────────────────────────── */
+
+describe('POST /api/masters/menu/import', () => {
+  const post = async (payload: Record<string, unknown>, remoteAddress = '127.0.0.1') => {
+    const { createServer } = await import('../index.js')
+    const app = await createServer({ logger: false })
+    try {
+      return await app.inject({ method: 'POST', url: '/api/masters/menu/import', remoteAddress, payload })
+    } finally {
+      await app.close()
+    }
+  }
+
+  it('only plans unless dryRun is explicitly false', async () => {
+    const rows = [{ category: 'Routed', item: 'Plan Only', price: '4.00' }]
+    const res = await post({ rows, employeeId: admin })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().applied).toBe(false)
+    expect(itemIn('Routed', 'Plan Only')).toBeUndefined()
+
+    const applied = await post({ rows, dryRun: false, employeeId: admin })
+    expect(applied.json().applied).toBe(true)
+    expect(itemIn('Routed', 'Plan Only')?.price).toBe(400)
+  })
+
+  it('rejects a body without rows', async () => {
+    const res = await post({ employeeId: admin })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('is not reachable from the LAN without being the counter', async () => {
+    const res = await post({ rows: [], employeeId: admin }, '192.168.1.50')
+    expect(res.statusCode).toBeGreaterThanOrEqual(401)
+    expect(res.statusCode).toBeLessThan(404)
   })
 })

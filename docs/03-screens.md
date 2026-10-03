@@ -50,6 +50,8 @@ Where the cashier lives. Two panes.
 - Multi-tender: added payments list, running Balance Due / Change
 - Ref no field appears only when `requires_ref`
 - Settle button disabled until `sum(payments) >= total`
+- Button label says what will print — the bill is the tax invoice, so settling prints only when needed: **Settle & print bill** (none printed yet) · **Settle & print revised bill** (changed since printing) · **Settle** (bill already in the customer's hand; cash only opens the drawer)
+- Refused with a clear message if no shift is open on this counter
 - **States:** single tender · split tender · overpay (shows change) · underpay
 
 ## A05 · Floor view — P1
@@ -64,6 +66,7 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 - **Referential guards** refuse to disable something in use, with a sentence the admin can act on — "1 kitchen(s) still print to this printer"
 - Nothing is deleted, only deactivated — historical rows still reference these by id
 - Bulk add for tables (A1…A12)
+- **Import CSV** (Categories and Items): `category, item, price, kitchen`. Always checks first; the preview's **KOT routing** table (category → kitchen → printer) is what to verify before **Import**. Full reference: [`05-menu-import.md`](05-menu-import.md)
 - Employees: setting a PIN here hashes it; the PIN never reaches the database or the audit log in the clear
 - **States:** list · empty · create · edit · guard refusal
 
@@ -113,7 +116,7 @@ Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of sp
 - **Install ID** with Copy — what the shop sends the supplier
 - Paste a licence key → **Activate**; errors say exactly why (wrong installation, expired, not valid)
 - Warning banner if the PC clock has been set back
-- Header banner on every screen from 7 days before expiry; when expired the open-counter step is skipped so the cashier can still settle open orders and renew
+- Header banner on every screen from 7 days before expiry. When expired, the open-counter step still appears while orders are waiting to be settled (payments need a shift); once nothing is left to settle it is skipped so the cashier can read reports and renew
 - **States:** trial · active · warning · expired · clock rolled back
 
 ---

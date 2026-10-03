@@ -13,6 +13,7 @@ const { seed } = await import('../seed.js')
 const { schema } = await import('@pos/shared')
 const { addItems, createOrder, getOrder, sendToKitchen } = await import('../services/orders.js')
 const { applyDiscount, settle } = await import('../services/billing.js')
+const { openShift } = await import('../services/shifts.js')
 const { voidLine } = await import('../services/voids.js')
 const R = await import('../services/reports.js')
 const { eq } = await import('drizzle-orm')
@@ -33,6 +34,8 @@ beforeAll(() => {
     counter: db.select().from(s.counters).get()!.id,
     cash: mode('Cash'), sbi: mode('SBI Card'),
   }
+  // Payments are refused outside a shift.
+  openShift({ counterId: ids.counter!, employeeId: ids.fatima!, openingFloat: 0 })
 })
 
 function sell(
