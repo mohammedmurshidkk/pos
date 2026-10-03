@@ -10,6 +10,7 @@ import { Devices } from './screens/Devices'
 import { Licence } from './screens/Licence'
 import { Masters } from './screens/Masters'
 import { Printers } from './screens/Printers'
+import { Settings } from './screens/Settings'
 import { Shift } from './screens/Shift'
 
 // Hash routing: Electron loads the built files from disk, where path routing
@@ -24,6 +25,7 @@ const router = createHashRouter([
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'printers', element: <Printers /> },
       { path: 'masters', element: <Masters /> },
+      { path: 'settings', element: <Settings /> },
       { path: 'devices', element: <Devices /> },
       { path: 'licence', element: <Licence /> },
       { path: 'shift', element: <Shift /> },

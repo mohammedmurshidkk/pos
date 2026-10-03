@@ -3,6 +3,7 @@ import { ApiError, api } from '../api/client'
 import { Banner, Button, EmptyState, Field as FieldWrap, Modal, Pill, inputStyle } from '../components/ui'
 import { MASTERS, type Field, type MasterSpec, type Row, specFor } from '../masters/config'
 import { useStore } from '../store'
+import { MenuImport } from './MenuImport'
 
 type Lists = Record<string, Row[]>
 
@@ -21,6 +22,7 @@ export function Masters() {
   const [editing, setEditing] = useState<Row | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [bulk, setBulk] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const spec = specFor(entity)
 
@@ -95,6 +97,8 @@ export function Masters() {
             {spec.hint ? <div className="muted" style={{ marginTop: 4 }}>{spec.hint}</div> : null}
           </div>
           {entity === 'tables' ? <Button onClick={() => setBulk(true)}>Bulk add</Button> : null}
+          {entity === 'categories' || entity === 'items'
+            ? <Button onClick={() => setImporting(true)}>Import CSV</Button> : null}
           <Button variant="primary" onClick={() => setEditing('new')}>Add {spec.title.replace(/s$/, '')}</Button>
         </div>
 
@@ -146,6 +150,13 @@ export function Masters() {
           decimals={data?.settings.currencyDecimals ?? 2}
           onCancel={() => setEditing(null)}
           onSave={save}
+        />
+      ) : null}
+
+      {importing ? (
+        <MenuImport
+          onClose={() => setImporting(false)}
+          onDone={async () => { await refresh(spec); await load() }}
         />
       ) : null}
 

@@ -421,7 +421,8 @@ export const printJobs = sqliteTable(
   {
     id: id(),
     printerId: text('printer_id').notNull().references(() => printers.id),
-    kind: text('kind', { enum: ['kot', 'invoice', 'bill', 'void', 'report', 'test'] }).notNull(),
+    /** 'invoice' is historical: the bill is the tax invoice now. 'drawer' pops the cash drawer, no paper. */
+    kind: text('kind', { enum: ['kot', 'invoice', 'bill', 'void', 'report', 'test', 'drawer'] }).notNull(),
     payloadJson: text('payload_json').notNull(),
     status: text('status', { enum: ['pending', 'printing', 'done', 'failed'] }).notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),

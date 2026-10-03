@@ -1,15 +1,36 @@
 export type OrderType = 'dine_in' | 'takeaway' | 'car' | 'delivery'
 export type OrderStatus = 'open' | 'billed' | 'settled' | 'void'
 
+/**
+ * The settings row as /api/bootstrap returns it (licence fields stripped).
+ * The editable subset mirrors `settingsSchema` in the server's masters service.
+ */
 export interface Settings {
   businessName: string
+  addressLine: string
+  phone: string
+  receiptFooter: string
+  countryCode: string
+  currencyCode: string
   currencyDisplay: string
   currencyDecimals: number
   taxName: string
+  /** Basis points: 5% is 500. */
   taxRateBp: number
   taxNumberLabel: string
   taxNumberValue: string
+  priceIncludesTax: boolean
+  serviceChargeBp: number
+  invoicePrefix: string
+  invoiceNextNo: number
+  businessDayStartHour: number
+  defaultKitchenId: string | null
+  requirePinOnAction: boolean
 }
+
+/** What PATCH /api/settings accepts — invoice numbering is never editable. */
+export type SettingsPatch = Partial<Omit<Settings, 'invoiceNextNo'>>
+export interface Kitchen { id: string; name: string; printerId: string; active: boolean }
 export interface Area { id: string; name: string; sort: number }
 export interface Table { id: string; areaId: string; name: string; seats: number; sort: number }
 export interface Category { id: string; name: string; kitchenId: string | null; sort: number }
@@ -75,6 +96,8 @@ export interface Order {
   subtotal: number; discountAmount: number; discountType: string
   serviceCharge: number; taxAmount: number; total: number
   invoiceNo: number | null; reprintCount: number
+  /** Lines or discount changed since the bill last printed — settling reprints it as REVISED. */
+  dirtySincePrint: boolean
   lines: OrderLine[]
 }
 
@@ -104,4 +127,23 @@ export interface ZReport {
   savedWithoutKot: number
   vatCollected: number
   invoiceRange: { from: number | null; to: number | null; count: number }
+}
+
+/** One spreadsheet row as POST /api/masters/menu/import accepts it. */
+export interface MenuImportRow {
+  category: string; item: string; price: string; kitchen?: string | null
+  /** Spreadsheet line — the hub reports problems against it. */
+  line?: number
+}
+
+/** Mirrors `MenuImportPlan` in the server's menu-import service. */
+export interface MenuImportPlan {
+  categoriesToCreate: { name: string; kitchen: string | null }[]
+  itemsToCreate: { category: string; name: string; price: number }[]
+  itemsToUpdate: { category: string; name: string; from: number; to: number }[]
+  unchanged: number
+  /** `row` is the spreadsheet line when rows carry `line`. */
+  errors: { row: number; message: string }[]
+  warnings: { row: number; message: string }[]
+  applied: boolean
 }

@@ -6,14 +6,14 @@ printers are addressed directly by IP.
 
 The full specification is in `docs/` — read `01-product-spec.md` before changing
 behaviour. `02-design-system.md`, `03-screens.md` and `04-stitch-prompts.md`
-cover the UI.
+cover the UI. `05-menu-import.md` covers the menu CSV import.
 
 ## Layout
 
 ```
 packages/shared    Drizzle schema, money/tax engine, KOT routing   28 tests
-packages/server    Fastify + SQLite, ESC/POS, print queue         166 tests
-packages/admin     React + Vite cashier/admin UI (light theme)
+packages/server    Fastify + SQLite, ESC/POS, print queue         206 tests
+packages/admin     React + Vite cashier/admin UI (light theme)      8 tests
 packages/mobile    Expo waiter app (dark, responsive)              10 tests
 packages/desktop   Electron shell — packages server + admin as one .exe
 tools/             fake-printer.js · licence.mjs (vendor-only licence signing)
@@ -22,7 +22,7 @@ tools/             fake-printer.js · licence.mjs (vendor-only licence signing)
 ## Commands
 
 ```bash
-pnpm -r test && pnpm -r typecheck        # 204 tests
+pnpm -r test && pnpm -r typecheck        # 252 tests
 node tools/fake-printer.js 9100 9101 9102 9130
 cd packages/server && pnpm dev           # hub on :4000
 cd packages/admin  && pnpm dev           # cashier UI on :5173 (proxies /api)
@@ -92,8 +92,10 @@ the pairing screen and **keeps its queued orders** (401 is not a rejection).
 **Licence:** 30-day trial starts on first run. A paid licence is an Ed25519-signed
 key bound to the install id (`POS1.<payload>.<sig>`). Expiry blocks **new orders
 and new shifts only** — add-on rounds, billing, settling, closing the shift and
-reports all keep working, so a lapse never strands a seated table. Winding the
-PC clock back does not extend it (`clockHighWater`).
+reports all keep working, so a lapse never strands a seated table. Since settling
+needs a shift, an expired install **can still open a shift while any order is
+unsettled** (`canOpenShift`); the cashier UI follows `canOpen` from
+`/api/shifts/current`. Winding the PC clock back does not extend it (`clockHighWater`).
 
 The install id lives in the database, not hardware, on purpose: restoring a
 backup onto a replacement PC must bring the licence with it.
@@ -171,6 +173,27 @@ once** by `seedMinimal`. Lost it? On the shop's PC:
 pnpm --filter @pos/server superadmin:set -- "a good password"
 ```
 
+## Menu CSV import
+
+Setup → Categories / Items → **Import CSV**. Columns `category, item, price,
+kitchen` (header-mapped, `kitchen` optional). Full reference: `docs/05-menu-import.md`.
+
+- **The sheet names a kitchen, never a printer.** Kitchen → printer is already
+  set in Setup, so routing comes for free. Kitchens are **never created** by an
+  import (`kitchens.printer_id` is NOT NULL); an unknown name blocks the import.
+- **Plan, then apply.** The route's `dryRun` defaults to **true**; only an explicit
+  `false` writes. The dialog's KOT routing table (category → kitchen → printer IP)
+  is what the operator checks.
+- One new category with two different kitchens is an **error**, not last-wins.
+- An existing category **keeps its kitchen**; the sheet only warns. Re-routing is a
+  deliberate act in Setup.
+- Matches by name (case-insensitive; items within their category). Re-import
+  updates prices and never duplicates. Nothing missing from the sheet is removed.
+- CSV is parsed in the browser (`admin/src/masters/csv.ts`). Each row carries its
+  spreadsheet `line`, which the hub uses in error messages. Keep it that way, or
+  errors point at the wrong row once blank lines are skipped.
+- Prices with more decimals than the currency are **rejected, not rounded**.
+
 ## Rules the code depends on
 
 - **Money is integers in minor units.** AED 25.50 is `2550`. The tax rate is
@@ -181,8 +204,18 @@ pnpm --filter @pos/server superadmin:set -- "a good password"
   categories, kitchens and employees by id.
 - **Snapshot `name` and `unit_price` onto order lines** so a menu price change
   cannot rewrite past invoices.
-- **BILL ≠ TAX INVOICE.** The bill is the customer's check; the tax invoice is
-  issued at settlement with TRN and VAT breakdown.
+- **The bill IS the tax invoice — one customer document.** It prints titled TAX
+  INVOICE with the invoice number, TRN and VAT breakdown from the first print
+  (tablet or counter). Settlement prints only if no bill was printed yet or the
+  order changed since (`REVISED`); otherwise cash just pops the drawer (`drawer`
+  print job, no paper) and card prints nothing. Old `invoice` jobs still render.
+- **No payment without an open shift.** `settle` refuses when the counter has no
+  open shift. A shift-less payment would be on no Z-report. Payment rows carry
+  the settling `counterId`, `shiftId` and cashier; the order's `counterId` becomes
+  the settling counter (the bill-print counter is not kept).
+- **Receipt bytes must stay below 0x80.** `toPrintable()` turns anything higher
+  into `?`. The drawer kick was `ESC p 0 0x19 0xFA` and would have reached the
+  printer as `0x19 ?`; it is now `0x19 0x78`.
 - **The tablet has no login and no void control.** Identity is captured per
   action by the employee picker; voids happen only at the counter. Both are
   deliberate anti-theft decisions, not omissions.
@@ -195,13 +228,13 @@ pnpm --filter @pos/server superadmin:set -- "a good password"
 Done: hub server, KOT routing, billing/settlement, voids, shifts + Z-report,
 expenses, reports, master data CRUD, counter sign-in + open counter, licence &
 trial expiry, device pairing tokens & tablet access scope, **superadmin (hidden
-shortcut, admin management)**, admin UI (billing, settle, shift, printers,
+shortcut, admin management)**, menu CSV import (Setup → Categories/Items), admin UI (billing, settle, shift, printers,
 dashboard, setup, devices, licence), waiter app
 (responsive, offline queue, pairing by code), Electron shell.
 
 Not done: expenses/reports/settings screens in admin, QR pairing camera,
-customer lookup for delivery, 30-day backup retention, invoice reprint after
-settlement, APK build, app icon, code signing, refunds (deferred by client),
+customer lookup for delivery, 30-day backup retention, a reprint button for
+settled orders in the admin UI (the API already reprints them), APK build, app icon, code signing, refunds (deferred by client),
 Arabic (deferred).
 
 **The v0.2.0 installer is broken** — it predates the loopback fix above and

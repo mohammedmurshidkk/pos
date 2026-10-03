@@ -63,14 +63,9 @@ function orderContext(orderId: string) {
 function buildPayload(
   orderId: string,
   counterId: string,
-  isTaxInvoice: boolean,
+  /** Listed under the total once money has been taken. */
   payments?: { name: string; amount: number }[],
   revised = false,
-  /**
-   * Bill reprints and invoice reprints are different counters. The tax invoice
-   * issued at settlement is always an original, however many bills were printed
-   * on the way there.
-   */
   reprintCountOverride?: number,
 ): { payload: BillPayload; printerId: string } {
   const cfg = settings()
@@ -79,7 +74,6 @@ function buildPayload(
   if (!counter) throw notFound('counter')
 
   const payload: BillPayload = {
-    isTaxInvoice,
     businessName: cfg.businessName,
     addressLine: cfg.addressLine,
     phone: cfg.phone,
@@ -118,11 +112,37 @@ function buildPayload(
   return { payload, printerId: counter.printerId }
 }
 
+function paymentRows(orderId: string) {
+  return db
+    .select({ amount: s.payments.amount, name: s.paymentModes.name })
+    .from(s.payments)
+    .innerJoin(s.paymentModes, eq(s.payments.paymentModeId, s.paymentModes.id))
+    .where(eq(s.payments.orderId, orderId))
+    .all()
+}
+
+/** Pop the cash drawer on the counter's printer without printing any paper. */
+function queueDrawerKick(orderId: string, counterId: string) {
+  const counter = db.select().from(s.counters).where(eq(s.counters.id, counterId)).get()
+  if (!counter) throw notFound('counter')
+  db.insert(s.printJobs).values({
+    id: newId(), printerId: counter.printerId, kind: 'drawer', payloadJson: '{}', refId: orderId,
+  }).run()
+  printQueue.kick(counter.printerId)
+}
+
 /**
- * Print the customer's BILL — not a tax invoice.
+ * Print the customer's bill, which is also the tax invoice.
  *
- * The invoice number is allocated here, on first print, and stays with the
- * order as items are added. Settlement is what turns it into a tax invoice.
+ * There is one customer document, not two. From its first print the bill
+ * carries the gapless invoice number, the TRN and the VAT breakdown, and
+ * settlement prints nothing more unless the paper the customer holds is missing
+ * or out of date (see `settle`). Printing a second "tax invoice" at the till
+ * only wasted paper and confused customers holding two slips for one meal.
+ *
+ * The invoice number is allocated on first print and stays with the order.
+ * After settlement this is a reprint: the payments are listed and the order's
+ * settling counter is left alone, because that is what the Z-report counts.
  */
 export function printBill(orderId: string, employeeId: string, counterId: string) {
   requireEmployee(employeeId)
@@ -130,9 +150,11 @@ export function printBill(orderId: string, employeeId: string, counterId: string
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
   if (order.status === 'void') throw conflict('This order was cancelled.')
-  if (order.status === 'settled') throw conflict('Order is settled. Reprint the invoice instead.')
+  const settled = order.status === 'settled'
 
-  recalculate(orderId)
+  // A settled invoice is final. Recalculating would apply today's tax settings
+  // to it.
+  if (!settled) recalculate(orderId)
 
   // Read the dirty flag BEFORE clearing it — this is what decides REVISED.
   const isReprint = order.invoiceNo != null
@@ -151,14 +173,16 @@ export function printBill(orderId: string, employeeId: string, counterId: string
     } else {
       db.update(s.orders).set({
         reprintCount: order.reprintCount + 1,
-        counterId,
+        ...(settled ? {} : { counterId }),
         lastPrintedAt: new Date(),
         dirtySincePrint: false,
       }).where(eq(s.orders.id, orderId)).run()
     }
   })()
 
-  const { payload, printerId } = buildPayload(orderId, counterId, false, undefined, revised)
+  const { payload, printerId } = buildPayload(
+    orderId, counterId, settled ? paymentRows(orderId) : undefined, revised,
+  )
   db.insert(s.printJobs).values({
     id: newId(), printerId, kind: 'bill',
     payloadJson: JSON.stringify(payload), refId: orderId,
@@ -166,7 +190,7 @@ export function printBill(orderId: string, employeeId: string, counterId: string
   printQueue.kick(printerId)
 
   const fresh = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!
-  audit(employeeId, 'bill.print', 'order', orderId, { reprint: fresh.reprintCount })
+  audit(employeeId, 'bill.print', 'order', orderId, { reprint: fresh.reprintCount, settled })
   return { invoiceNo: fresh.invoiceNo, reprintCount: fresh.reprintCount, revised: payload.wasEditedAfterPrint }
 }
 
@@ -180,14 +204,19 @@ export function paidSoFar(orderId: string): number {
 }
 
 /**
- * Take payment and issue the TAX INVOICE.
+ * Take payment.
  *
  * Payments are a child table, so a customer paying part cash and part card is
  * one order with two rows — and day-wise merchant totals are a GROUP BY.
+ *
+ * Settling prints the bill only when the customer has no correct one: it was
+ * never printed (a quick takeaway settled straight away), or lines or the
+ * discount changed since it was. Otherwise the bill in their hand already is
+ * the tax invoice, and a cash payment just opens the drawer.
  */
 export function settle(
   orderId: string,
-  input: { payments: { paymentModeId: string; amount: number; refNo?: string | null }[]; employeeId: string; counterId: string; shiftId?: string | null },
+  input: { payments: { paymentModeId: string; amount: number; refNo?: string | null }[]; employeeId: string; counterId: string },
 ) {
   requireEmployee(input.employeeId)
   requireCounter(input.counterId)
@@ -196,17 +225,22 @@ export function settle(
   if (order.status === 'settled') throw conflict('Order is already settled.')
   if (order.status === 'void') throw conflict('This order was cancelled.')
 
+  // Every payment belongs to the shift open on this counter. A payment outside
+  // a shift is in no Z-report: the cash would be in the drawer and missing
+  // from the count.
+  const shiftId = openShiftIdFor(input.counterId)
+  if (!shiftId) {
+    throw conflict('No shift is open on this counter. Open the counter before taking payment.')
+  }
+
   recalculate(orderId)
   const current = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!
-
-  // Attach to whichever shift is open on this counter, so the Z-report adds up
-  // without the client having to track shift ids.
-  const shiftId = input.shiftId ?? openShiftIdFor(input.counterId)
+  const wasPrinted = current.invoiceNo != null
 
   let openedDrawer = false
   let tendered = 0
   raw.transaction(() => {
-    if (current.invoiceNo == null) {
+    if (!wasPrinted) {
       db.update(s.orders).set({
         invoiceNo: allocateInvoiceNo(),
         billedAt: new Date(),
@@ -241,33 +275,40 @@ export function settle(
   const paid = paidSoFar(orderId)
   if (paid < current.total) {
     // Partial payment is legitimate — the order stays open for the rest.
+    if (openedDrawer) queueDrawerKick(orderId, input.counterId)
     return { settled: false, paid, balanceDue: current.total - paid }
   }
+
+  const needsPrint = !wasPrinted || current.dirtySincePrint
+  const reprintCount = wasPrinted && needsPrint ? current.reprintCount + 1 : current.reprintCount
 
   db.update(s.orders).set({
     status: 'settled',
     settledAt: new Date(),
     counterId: input.counterId,
     shiftId,
+    ...(needsPrint ? { reprintCount, lastPrintedAt: new Date(), dirtySincePrint: false } : {}),
   }).where(eq(s.orders.id, orderId)).run()
 
-  const paymentRows = db
-    .select({ amount: s.payments.amount, name: s.paymentModes.name })
-    .from(s.payments)
-    .innerJoin(s.paymentModes, eq(s.payments.paymentModeId, s.paymentModes.id))
-    .where(eq(s.payments.orderId, orderId))
-    .all()
-
-  const { payload, printerId } = buildPayload(orderId, input.counterId, true, paymentRows, false, 0)
-  db.insert(s.printJobs).values({
-    id: newId(), printerId, kind: 'invoice',
-    payloadJson: JSON.stringify({ ...payload, openDrawer: openedDrawer }), refId: orderId,
-  }).run()
-  printQueue.kick(printerId)
+  if (needsPrint) {
+    const { payload, printerId } = buildPayload(
+      orderId, input.counterId, paymentRows(orderId), wasPrinted, reprintCount,
+    )
+    db.insert(s.printJobs).values({
+      id: newId(), printerId, kind: 'bill',
+      payloadJson: JSON.stringify({ ...payload, openDrawer: openedDrawer }), refId: orderId,
+    }).run()
+    printQueue.kick(printerId)
+  } else if (openedDrawer) {
+    queueDrawerKick(orderId, input.counterId)
+  }
 
   const fresh = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!
-  audit(input.employeeId, 'order.settle', 'order', orderId, { invoiceNo: fresh.invoiceNo, paid })
-  return { settled: true, paid, changeDue: Math.max(0, tendered - current.total), invoiceNo: fresh.invoiceNo }
+  audit(input.employeeId, 'order.settle', 'order', orderId, { invoiceNo: fresh.invoiceNo, paid, printed: needsPrint })
+  return {
+    settled: true, paid, changeDue: Math.max(0, tendered - current.total),
+    invoiceNo: fresh.invoiceNo, printed: needsPrint,
+  }
 }
 
 /** Bill-level discount. Gated on the employee's permission and their cap. */

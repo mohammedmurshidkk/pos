@@ -121,7 +121,7 @@ Then an "Added Payments" list showing rows with a small delete icon:
 
 Below that, a summary line: "Balance Due  AED 0.00" in green, bold.
 
-Footer: a ghost "Cancel" button on the left, a filled indigo "Settle & Print Invoice"
+Footer: a ghost "Cancel" button on the left, a filled indigo "Settle"
 button on the right, 44px tall.
 ```
 

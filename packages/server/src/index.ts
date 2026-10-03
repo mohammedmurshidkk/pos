@@ -31,7 +31,8 @@ import {
   categoryWise, discountsAndVoids, employeeWise, itemWise, orderTypeWise,
   paymentModeWise, resolveRange, salesSummary, taxSummary, toCsv, type RangePreset,
 } from './services/reports.js'
-import { closeShift, openShift, openShiftIdFor, zReport } from './services/shifts.js'
+import { importMenu, type MenuImportRow } from './services/menu-import.js'
+import { canOpenShift, closeShift, openShift, openShiftIdFor, zReport } from './services/shifts.js'
 import { removeUnsentLine, voidLine, voidOrder } from './services/voids.js'
 
 /** Set by the access hook when a paired tablet made the request. */
@@ -309,7 +310,10 @@ app.post('/api/orders/:id/void', async (req) => {
 app.get('/api/shifts/current', async (req) => {
   const { counterId } = req.query as { counterId: string }
   const id = openShiftIdFor(counterId)
-  return { shiftId: id, open: id != null }
+  // canOpen is false only when the licence has expired and nothing is left to
+  // settle. The cashier UI then lets them into the app instead of trapping
+  // them on the open-counter step.
+  return { shiftId: id, open: id != null, canOpen: id == null && canOpenShift() }
 })
 
 app.post('/api/shifts/open', async (req) => {
@@ -514,6 +518,24 @@ app.post('/api/masters/tables/bulk', async (req) => {
   const result = bulkTables(body, employeeId)
   broadcast('master.changed', { entity: 'tables' })
   return result
+})
+
+/**
+ * Spreadsheet import of categories + items. `dryRun: true` returns the plan
+ * for the operator to check — above all which kitchen (and so which printer)
+ * each new category's KOTs will go to — before anything is written.
+ */
+app.post('/api/masters/menu/import', async (req) => {
+  const { rows, dryRun, employeeId } = (req.body ?? {}) as {
+    rows: MenuImportRow[]; dryRun?: boolean; employeeId: string
+  }
+  if (!Array.isArray(rows)) throw conflict('Send the sheet as a list of rows.')
+  const plan = importMenu(rows, { dryRun: dryRun !== false }, employeeId)
+  if (plan.applied) {
+    broadcast('master.changed', { entity: 'categories' })
+    broadcast('master.changed', { entity: 'items' })
+  }
+  return plan
 })
 
 app.patch('/api/settings', async (req) => {

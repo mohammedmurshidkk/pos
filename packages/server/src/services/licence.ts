@@ -154,15 +154,19 @@ export function installLicence(key: string, employeeId: string): LicenceStatus {
  * What an expired licence stops.
  *
  * Deliberately narrow — the spec says never hard-lock mid-service. Expiry stops
- * NEW orders and NEW shifts. Tables already seated can still add a round, be
- * billed and settled; the shift can still be closed and reports read.
+ * NEW orders, and NEW shifts once nothing is left to settle (`canOpenShift`).
+ * Tables already seated can still add a round, be billed and settled — opening
+ * a shift for it if needed — the shift can still be closed and reports read.
  */
 export function assertLicensed(action: 'new order' | 'open shift'): void {
   const status = licenceStatus()
   if (status.state !== 'expired') return
   const what = status.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired'
   throw licenceRequired(
-    `${what}, so a ${action === 'new order' ? 'new order' : 'new shift'} cannot be started. ` +
-    'Open orders can still be billed and settled. Renew under Licence on the counter PC.',
+    action === 'new order'
+      ? `${what}, so a new order cannot be started. Open orders can still be billed and settled. ` +
+        'Renew under Licence on the counter PC.'
+      : `${what}, so a new shift cannot be started — there are no open orders left to settle. ` +
+        'Renew under Licence on the counter PC.',
   )
 }

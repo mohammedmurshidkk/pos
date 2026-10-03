@@ -113,6 +113,8 @@ Settings (single row)
 
 One printer may serve many counters/kitchens. A single-printer shop creates one kitchen ("Main Kitchen") pointing at the same printer as the counter — same code path, no special case.
 
+Categories and items can be bulk-loaded from a CSV (`category, item, price, kitchen`). The sheet names a **kitchen**, never a printer, and the import never creates kitchens. So printers and kitchens are set up first, and the menu is imported on top. See [`05-menu-import.md`](05-menu-import.md).
+
 ---
 
 ## 5. Data model
@@ -242,10 +244,19 @@ open ──KOT sent──> open ──bill printed──> billed ──settle─
 - Items added after that keep the **same invoice number**; totals recalculate; reprint shows the new total.
 - Reprints print `REVISED` / `REPRINT #n` in the header and increment `reprint_count`.
 - **Settlement locks the order.** Further items = new order + new invoice number.
+- **One customer document: the bill *is* the tax invoice.** From its first print, on the tablet or at the counter, it carries the invoice number, TRN, Net and VAT lines, titled `TAX INVOICE`. Settlement does **not** print a second slip, except in two cases:
+  - **No bill was printed** (a takeaway settled straight away): settlement prints it once, with the payments listed.
+  - **Lines or the discount changed since the last print**: settlement prints it as `REVISED`, so the customer's paper matches what they paid.
+  - Otherwise a cash payment only pops the drawer (a `drawer` print job: ESC p, no paper) and a card payment prints nothing.
+- **Reprint after settlement** goes through the same Print Bill action: `REPRINT #n` with payments listed. It never changes the order's settling counter.
 - Counter selection: **counter PC uses its own fixed counter, never prompts.** **Tablet shows a selector preselected to `default_counter_id`**, changeable, and the change becomes the new default.
 
 ### 6.4 Payments
 `payments` is a child table — many rows per order. AED 100 cash + AED 200 on the SBI machine = one order, two rows. Order settles when `sum(payments) >= total`. Day-wise merchant totals are a `GROUP BY payment_mode_id`.
+
+**Every payment row records the settling `counter_id`, `shift_id` and `created_by` (the cashier).** This is what the Z-report counts. On settlement the order's own `counter_id` and `shift_id` are overwritten with the settling counter's; the bill-print counter is not kept.
+
+**No payment without an open shift.** The hub refuses to settle on a counter with no open shift. A payment with no shift would appear on no Z-report: the cash would be in the drawer and missing from the count.
 
 ### 6.5 Print queue
 - **One serial worker per printer.** Two concurrent sockets to one printer produce shredded output.
@@ -291,7 +302,7 @@ The review screen offers two actions:
 
 - Lines get `status = 'sent'` **and** `kot_suppressed = true`
 - **No `kot_tickets` row and no `print_jobs` row** — nothing reaches the kitchen
-- The bill and invoice print completely normally. Only the kitchen ticket is skipped
+- The bill (tax invoice) prints completely normally. Only the kitchen ticket is skipped
 
 Three guards:
 
@@ -403,6 +414,7 @@ Non-negotiable for MVP:
 - The install id is stored in the **database, not derived from hardware**. Restoring a shift-close backup onto a replacement PC keeps the licence — a dead PC must not lock a restaurant out.
 - Warn from **7 days** before expiry, on the counter and on tablets.
 - **On expiry: no new orders, no new shifts.** Adding a round to an already-open order, billing, settling, closing the shift and reports all keep working — **never hard-lock mid-service.**
+- Because settling needs an open shift, **an expired install may still open a shift while any order is unsettled** (`open` or `billed`). Once nothing is left to settle, new shifts are blocked. `GET /api/shifts/current` returns `canOpen`, and the cashier UI only shows the open-counter step when it is true.
 - Setting the PC clock back does **not** extend a licence: expiry is measured from the latest time the install has ever seen.
 - Vendor tooling: `tools/licence.mjs` (`keygen`, `sign`, `inspect`). The private key never leaves the vendor's machine.
 

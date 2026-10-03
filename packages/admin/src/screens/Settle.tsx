@@ -140,7 +140,12 @@ export function Settle({ order, onClose, onSettled }: {
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={busy || taken < order.total} onClick={() => void settle()}>
-          {busy ? 'Settling…' : 'Settle & print invoice'}
+          {/* The printed bill is the tax invoice. Settling prints only if the
+              customer has no bill yet, or theirs is out of date. */}
+          {busy ? 'Settling…'
+            : order.invoiceNo == null ? 'Settle & print bill'
+            : order.dirtySincePrint ? 'Settle & print revised bill'
+            : 'Settle'}
         </Button>
       </div>
     </Modal>

@@ -67,6 +67,22 @@ describe('expiry never hard-locks service', () => {
     expect(() => openShift({ counterId: counter, employeeId: admin, openingFloat: 0 })).toThrow(/new shift/i)
   })
 
+  it('still opens a shift while an order is waiting to be settled, so the table can pay', () => {
+    setSettings({ trialStartedAt: new Date(Date.now() - 5 * DAY) })
+    const waiting = createOrder({ type: 'takeaway', createdBy: admin })!
+    setSettings({ trialStartedAt: new Date(Date.now() - 31 * DAY) })
+    try {
+      const shift = openShift({ counterId: counter, employeeId: admin, openingFloat: 0 })
+      expect(shift.closedAt).toBeNull()
+      expect(() => createOrder({ type: 'takeaway', createdBy: admin })).toThrow(/trial has ended/i)
+    } finally {
+      db.delete(s.shifts).run()
+      db.delete(s.orders).where(eq(s.orders.id, waiting.id)).run()
+    }
+    expect(() => openShift({ counterId: counter, employeeId: admin, openingFloat: 0 }))
+      .toThrow(/no open orders left to settle/i)
+  })
+
   it('uses a 402 so the tablet queue can tell it apart from a permission error', () => {
     try {
       createOrder({ type: 'takeaway', createdBy: admin })

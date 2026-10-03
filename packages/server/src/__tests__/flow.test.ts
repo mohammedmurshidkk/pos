@@ -9,9 +9,10 @@ process.env.POS_PRINT_DISABLED = '1'
 
 const { db, migrateDb } = await import('../db.js')
 const { seed } = await import('../seed.js')
-const { schema } = await import('@pos/shared')
+const { newId, schema } = await import('@pos/shared')
 const { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } = await import('../services/orders.js')
 const { applyDiscount, printBill, settle } = await import('../services/billing.js')
+const { openShift } = await import('../services/shifts.js')
 const { voidLine, voidOrder, removeUnsentLine } = await import('../services/voids.js')
 const { eq } = await import('drizzle-orm')
 
@@ -36,6 +37,8 @@ beforeAll(() => {
     cash: modeId('Cash'),
     sbi: modeId('SBI Card'),
   }
+  // Payments are refused outside a shift.
+  openShift({ counterId: ids.counter!, employeeId: ids.fatima!, openingFloat: 0 })
 })
 
 const openOrder = (lines: { itemId: string; qty: number }[] = [{ itemId: ids.alfaham!, qty: 1 }]) => {
@@ -82,10 +85,17 @@ describe('invoice numbering', () => {
 })
 
 describe('settlement', () => {
-  it('settles with a single tender and prints a tax invoice', () => {
+  const jobsFor = (orderId: string) =>
+    db.select().from(s.printJobs).where(eq(s.printJobs.refId, orderId)).all()
+  const payloadOf = (job: { payloadJson: string }) => JSON.parse(job.payloadJson) as {
+    reprintCount: number; wasEditedAfterPrint: boolean; taxNumberValue: string; invoiceNo: string | null
+    payments?: { name: string; amount: number }[]; openDrawer?: boolean
+  }
+
+  it('prints the bill as the tax invoice and does not print again at settlement', () => {
     const id = openOrder()
     printBill(id, ids.rahul!, ids.counter!)
-    printBill(id, ids.rahul!, ids.counter!) // two bill reprints before settling
+    printBill(id, ids.rahul!, ids.counter!) // a reprint before paying
     const total = getOrder(id)!.total
     const r = settle(id, {
       payments: [{ paymentModeId: ids.cash!, amount: total }],
@@ -93,16 +103,91 @@ describe('settlement', () => {
     })
     expect(r.settled).toBe(true)
     expect(r.changeDue).toBe(0)
+    expect(r.printed).toBe(false)
 
-    const jobs = db.select().from(s.printJobs).where(eq(s.printJobs.refId, id)).all()
-    const invoice = jobs.find((j) => j.kind === 'invoice')
-    expect(invoice).toBeDefined()
+    const jobs = jobsFor(id)
+    expect(jobs.map((j) => j.kind)).toEqual(['bill', 'bill', 'drawer'])
+    const bill = payloadOf(jobs[0]!)
+    expect(bill.invoiceNo).toBeTruthy()
+    expect(bill.taxNumberValue).toBeTruthy() // TRN is mandatory on a UAE tax invoice
+  })
 
-    // The tax invoice is an original even if several bills were printed first.
-    const payload = JSON.parse(invoice!.payloadJson) as { reprintCount: number; isTaxInvoice: boolean; taxNumberValue: string }
-    expect(payload.isTaxInvoice).toBe(true)
-    expect(payload.reprintCount).toBe(0)
-    expect(payload.taxNumberValue).toBeTruthy() // TRN is mandatory on a UAE tax invoice
+  it('prints the bill at settlement when none was printed, with payments and the drawer', () => {
+    const id = openOrder()
+    const total = getOrder(id)!.total
+    const r = settle(id, {
+      payments: [{ paymentModeId: ids.cash!, amount: total }],
+      employeeId: ids.fatima!, counterId: ids.counter!,
+    })
+    expect(r.printed).toBe(true)
+    expect(r.invoiceNo).toBeTruthy()
+
+    const jobs = jobsFor(id)
+    expect(jobs.map((j) => j.kind)).toEqual(['bill'])
+    const p = payloadOf(jobs[0]!)
+    expect(p.reprintCount).toBe(0)
+    expect(p.payments).toEqual([{ name: 'Cash', amount: total }])
+    expect(p.openDrawer).toBe(true)
+  })
+
+  it('prints a REVISED bill at settlement when the order changed after printing', () => {
+    const id = openOrder()
+    printBill(id, ids.rahul!, ids.counter!)
+    addItems(id, [{ itemId: ids.juice!, qty: 1 }], ids.rahul!)
+    const total = getOrder(id)!.total
+    const r = settle(id, {
+      payments: [{ paymentModeId: ids.cash!, amount: total }],
+      employeeId: ids.fatima!, counterId: ids.counter!,
+    })
+    expect(r.printed).toBe(true)
+
+    const last = jobsFor(id).at(-1)!
+    expect(last.kind).toBe('bill')
+    expect(payloadOf(last)).toMatchObject({ wasEditedAfterPrint: true, reprintCount: 1, openDrawer: true })
+    expect(getOrder(id)!.dirtySincePrint).toBe(false)
+  })
+
+  it('prints nothing and opens no drawer for a card payment against a printed bill', () => {
+    const id = openOrder()
+    printBill(id, ids.rahul!, ids.counter!)
+    settle(id, {
+      payments: [{ paymentModeId: ids.sbi!, amount: getOrder(id)!.total, refNo: '9921' }],
+      employeeId: ids.fatima!, counterId: ids.counter!,
+    })
+    expect(jobsFor(id).map((j) => j.kind)).toEqual(['bill'])
+  })
+
+  it('reprints after settlement with payments, keeping the settling counter', () => {
+    const id = openOrder()
+    const total = getOrder(id)!.total
+    settle(id, {
+      payments: [{ paymentModeId: ids.cash!, amount: total }],
+      employeeId: ids.fatima!, counterId: ids.counter!,
+    })
+    const other = newId()
+    db.insert(s.counters).values({
+      id: other, name: 'Second Till', printerId: db.select().from(s.printers).get()!.id,
+    }).run()
+
+    const r = printBill(id, ids.fatima!, other)
+    expect(r.reprintCount).toBe(1)
+    const order = getOrder(id)!
+    expect(order.status).toBe('settled')
+    expect(order.counterId).toBe(ids.counter) // the Z-report's counter, untouched
+    expect(payloadOf(jobsFor(id).at(-1)!).payments).toEqual([{ name: 'Cash', amount: total }])
+  })
+
+  it('refuses payment when no shift is open on the counter', () => {
+    const shiftless = newId()
+    db.insert(s.counters).values({
+      id: shiftless, name: 'No Shift Till', printerId: db.select().from(s.printers).get()!.id,
+    }).run()
+    const id = openOrder()
+    expect(() => settle(id, {
+      payments: [{ paymentModeId: ids.cash!, amount: getOrder(id)!.total }],
+      employeeId: ids.fatima!, counterId: shiftless,
+    })).toThrow(/no shift is open/i)
+    expect(db.select().from(s.payments).where(eq(s.payments.orderId, id)).all()).toEqual([])
   })
 
   it('handles a split tender across two merchant accounts', () => {

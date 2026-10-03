@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNotNull, isNull, lte, sum } from 'drizzle-orm'
+import { and, count, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
 import { backupTo, db, raw } from '../db.js'
@@ -7,7 +7,7 @@ import { printQueue } from '../queue.js'
 import type { ZReportPayload } from '../templates.js'
 import { requireCounter } from './counters.js'
 import { requireEmployee } from './employees.js'
-import { assertLicensed } from './licence.js'
+import { assertLicensed, licenceStatus } from './licence.js'
 
 const s = schema
 
@@ -21,10 +21,29 @@ export function openShiftIdFor(counterId: string): string | null {
   return row?.id ?? null
 }
 
+/** Orders still waiting for money — seated, sent or billed. */
+function unsettledOrderCount(): number {
+  const row = db.select({ n: count() }).from(s.orders)
+    .where(inArray(s.orders.status, ['open', 'billed'])).get()
+  return row?.n ?? 0
+}
+
+/**
+ * Whether a shift may be opened now.
+ *
+ * Settling needs an open shift, and an expired licence must never strand a
+ * seated table. So expiry blocks a new shift only when there is nothing left to
+ * settle; while unsettled orders remain, a shift can be opened to take their
+ * money. New orders stay blocked either way.
+ */
+export function canOpenShift(): boolean {
+  return licenceStatus().state !== 'expired' || unsettledOrderCount() > 0
+}
+
 export function openShift(input: { counterId: string; employeeId: string; openingFloat: number }) {
   requireEmployee(input.employeeId)
   requireCounter(input.counterId)
-  assertLicensed('open shift')
+  if (!canOpenShift()) assertLicensed('open shift')
   if (openShiftIdFor(input.counterId)) {
     throw conflict('A shift is already open on this counter. Close it first.')
   }

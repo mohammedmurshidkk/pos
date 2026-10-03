@@ -21,7 +21,10 @@ export const CMD = {
   invertOn: `${GS}B\x01`,
   invertOff: `${GS}B\x00`,
   cut: `${GS}V\x42\x00`,
-  drawerKick: `${ESC}p\x00\x19\xfa`,
+  // ESC p m t1 t2: pin 2, 50 ms on, 240 ms off. Every byte stays below 0x80
+  // because toPrintable() turns anything higher into '?' — the classic
+  // `\x19\xfa` arrived at the printer as `\x19?`.
+  drawerKick: `${ESC}p\x00\x19\x78`,
   feed: (n: number) => `${ESC}d${String.fromCharCode(n)}`,
 }
 

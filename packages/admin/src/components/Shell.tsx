@@ -12,6 +12,7 @@ const NAV = [
   { to: '/shift', label: 'Shift' },
   { to: '/printers', label: 'Printers' },
   { to: '/masters', label: 'Setup' },
+  { to: '/settings', label: 'Settings' },
   { to: '/devices', label: 'Devices' },
   { to: '/licence', label: 'Licence' },
 ]
@@ -52,6 +53,7 @@ function OperatorChip() {
 export function Shell() {
   const { data, error, load, refreshPrinters, operator, counterId } = useStore()
   const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
+  const [canOpen, setCanOpen] = useState(true)
 
   /**
    * Nothing can be settled without an open shift, so the app is gated on one.
@@ -61,7 +63,9 @@ export function Shell() {
   const checkShift = useCallback(async () => {
     if (!counterId) return
     try {
-      setShiftOpen((await api.currentShift(counterId)).open)
+      const shift = await api.currentShift(counterId)
+      setShiftOpen(shift.open)
+      setCanOpen(shift.canOpen)
     } catch {
       setShiftOpen(null)
     }
@@ -109,10 +113,11 @@ export function Shell() {
   }
 
   if (!operator) return <Login />
-  // An expired licence cannot open a shift, so do not trap the cashier on that
-  // step — let them into the app to settle open orders, read reports and renew.
+  // Payments need an open shift, so the app is gated on one. The hub says when
+  // a shift cannot be opened (licence expired and nothing left to settle);
+  // then let the cashier in to read reports and renew instead of trapping them.
   const expired = data.licence?.state === 'expired'
-  if (shiftOpen === false && !expired) return <OpenCounter onOpened={() => setShiftOpen(true)} />
+  if (shiftOpen === false && canOpen) return <OpenCounter onOpened={() => setShiftOpen(true)} />
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', height: '100%' }}>
@@ -156,7 +161,7 @@ export function Shell() {
               <Banner tone={expired ? 'danger' : 'warning'}>
                 <span style={{ flex: 1 }}>
                   {expired
-                    ? `${data.licence.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired'}. New orders and shifts are blocked; open orders can still be settled.`
+                    ? `${data.licence.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired'}. New orders are blocked; open orders can still be billed and settled.`
                     : `${data.licence.plan === 'trial' ? 'Free trial' : 'Licence'} ends in ${data.licence.daysLeft} day${data.licence.daysLeft === 1 ? '' : 's'}.`}
                 </span>
                 <NavLink to="/licence" style={{ fontWeight: 600, color: 'inherit' }}>Open Licence</NavLink>
