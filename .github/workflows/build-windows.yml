@@ -24,8 +24,21 @@ jobs:
       - run: pnpm -r test
       - name: Build native module for Electron
         run: pnpm --filter @pos/desktop native:electron
+      # dist/ is gitignored, so the runner has to build the app (admin UI,
+      # main.cjs, migrations) before packaging it.
+      - name: Build app
+        run: pnpm --filter @pos/desktop build
       - name: Build installer
         run: pnpm --filter @pos/desktop exec electron-builder --win --publish never
+      # The packaged native module must be a Windows binary. The build log
+      # looks identical either way, so check the file itself.
+      - name: Check packaged native module
+        shell: bash
+        run: |
+          f=$(find packages/desktop/release/win-unpacked -name better_sqlite3.node | head -1)
+          test -n "$f" || { echo "better_sqlite3.node missing from the package"; exit 1; }
+          head -c 2 "$f" | grep -q MZ || { echo "$f is not a Windows binary"; exit 1; }
+          echo "ok: $f is a Windows binary"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
