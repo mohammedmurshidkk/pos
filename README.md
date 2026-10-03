@@ -56,6 +56,7 @@ docs/              spec, design system, screens, Stitch prompts
 
 | File | What's in it |
 |---|---|
+| [RELEASE.md](RELEASE.md) | **Building and installing** the Windows installer and Android APK |
 | [docs/01-product-spec.md](docs/01-product-spec.md) | Stakeholders, scope, architecture, data model, flows, tax rules, build order |
 | [docs/02-design-system.md](docs/02-design-system.md) | Colour tokens, typography, touch targets, component rules |
 | [docs/03-screens.md](docs/03-screens.md) | Every screen: purpose, elements, states, priority |

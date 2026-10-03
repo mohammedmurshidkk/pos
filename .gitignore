@@ -12,3 +12,6 @@ build/
 
 # licence signing keys never belong in the repo
 *.pem
+
+# Claude Code worktrees — separate checkouts, never part of the repo
+.claude/worktrees/
