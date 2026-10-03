@@ -22,7 +22,11 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # The default package list includes the long-removed `tools` package, which
+      # makes current sdkmanager fail ("Failed to find package 'tools'").
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @pos/mobile exec expo prebuild --platform android --clean
       - name: Build release APK

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { copyFile, readdir, stat } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,7 +32,7 @@ const workspace = path.join(here, '../../..')
 const modules = path.join(workspace, 'node_modules')
 const canonical = path.join(modules, 'better-sqlite3')
 
-const args = ['prebuild-install', '--tag-prefix=v']
+const args = ['--tag-prefix=v']
 if (target === 'node') {
   args.push('--runtime=node', `--target=${process.versions.node}`)
 } else {
@@ -39,7 +40,11 @@ if (target === 'node') {
   if (target === 'win32') args.push('--arch=x64', '--platform=win32')
 }
 
-execFileSync('pnpm', ['exec', ...args], { cwd: canonical, stdio: 'inherit' })
+// Run prebuild-install's script with this Node directly, not through `pnpm exec`:
+// on Windows pnpm is `pnpm.cmd`, which execFileSync refuses to spawn without a
+// shell (Node ≥ 20.12, CVE-2024-27980) — the CI Windows build failed on exactly that.
+const prebuild = createRequire(path.join(canonical, 'package.json')).resolve('prebuild-install/bin.js')
+execFileSync(process.execPath, [prebuild, ...args], { cwd: canonical, stdio: 'inherit' })
 
 const source = path.join(canonical, 'build/Release/better_sqlite3.node')
 
