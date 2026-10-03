@@ -1,34 +1,27 @@
-import { randomBytes } from 'node:crypto'
 import { newId, schema } from '@pos/shared'
 import { hashPin } from './services/auth.js'
-import { setSuperadminPassword } from './services/superadmin.js'
 import { db, raw } from './db.js'
 
 const s = schema
 
 /**
- * The smallest database the hub can actually run on — for a real install, where
- * the shop's own printers, kitchens, menu and staff get entered through Setup.
+ * The smallest database the hub can run on — what a real install starts from.
  *
- * Not the same thing as an empty database. Two rows have to exist or the app is
- * unusable and, worse, unfixable from the UI:
+ * Just the settings row: `billing.ts` and `orders.ts` both throw "settings
+ * missing" the moment anything is priced. Every column has a schema default, so
+ * the row is created bare and edited under Setup.
  *
- *   settings   `billing.ts` and `orders.ts` both throw "settings missing" the
- *              moment anything is priced. Every column has a schema default, so
- *              the row is created bare and edited under Setup.
- *   one admin  the counter Login needs an employee with a PIN. With no employees
- *              nobody can sign in, and masters can only be created once signed
- *              in — so an empty database locks you out of its own setup screen.
+ * Deliberately NOT created: an admin, a superadmin password and a trial. A fresh
+ * install opens on the first-time setup screen, where whoever installs it sets
+ * the superadmin password, adds the first admin with a starting PIN, and grants
+ * the trial (or activates a licence key). There is no shared default anywhere.
  *
- * Everything else — printers, kitchens, counters, categories, items, areas,
- * tables, payment modes, expense categories — is left for you to create.
- *
- *   pnpm seed:minimal                       → "Admin", PIN 1234
- *   pnpm seed:minimal -- "Murshid" 4321     → your own name and PIN
+ *   pnpm seed:minimal                       → settings only (as on first run)
+ *   pnpm seed:minimal -- "Murshid" 4321     → also an admin, for local testing
  *
  * Use `pnpm seed` instead for the Al Manzil demo dataset.
  */
-export function seedMinimal(name = 'Admin', pin = '1234'): boolean {
+export function seedMinimal(name?: string, pin?: string): boolean {
   const existing = raw.prepare('select count(*) as n from settings').get() as { n: number }
   // Silent when there is nothing to do: startServer calls this on every boot, and
   // a "delete pos.db first" line printed at each startup of a working install
@@ -41,25 +34,20 @@ export function seedMinimal(name = 'Admin', pin = '1234'): boolean {
   // business name, TRN and tax rate under Setup — nothing here hardcodes them.
   db.insert(s.settings).values({ id: 'singleton' }).run()
 
-  db.insert(s.employees).values({
-    id: newId(),
-    name,
-    role: 'admin',
-    pinHash: hashPin(pin),
-    canDiscount: true,
-    maxDiscountPercent: 100,
-    canSaveWithoutKot: true,
-  }).run()
-
-  // Random, not a constant: a shared default would be the same on every
-  // installation, and this password can reset any admin PIN.
-  const superadmin = randomBytes(9).toString('base64url').slice(0, 12)
-  setSuperadminPassword(superadmin)
-
-  console.log(`minimal seed: settings + one admin "${name}" (PIN ${pin}).`)
-  console.log(`SUPERADMIN PASSWORD: ${superadmin}   <- write this down, it is shown once`)
-  console.log('Lost it? Run `pnpm superadmin:set -- "<password>"` on this PC.')
-  console.log('Create printers → kitchens → counters → categories → items, then areas, tables, staff and payment modes under Setup.')
+  if (name && pin) {
+    db.insert(s.employees).values({
+      id: newId(),
+      name,
+      role: 'admin',
+      pinHash: hashPin(pin),
+      canDiscount: true,
+      maxDiscountPercent: 100,
+      canSaveWithoutKot: true,
+    }).run()
+    console.log(`minimal seed: settings + one admin "${name}" (PIN ${pin}).`)
+  } else {
+    console.log('minimal seed: settings only. Open the app on this PC to run first-time setup.')
+  }
   return true
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `trial_ends_at` integer;

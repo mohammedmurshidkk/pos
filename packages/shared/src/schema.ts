@@ -231,7 +231,13 @@ export const settings = sqliteTable('settings', {
    * the licence with it, not lock a restaurant out mid-week.
    */
   installId: text('install_id'),
+  /**
+   * A trial exists only once the superadmin grants one — there is no automatic
+   * trial. `trialStartedAt` records when it was last granted, `trialEndsAt` is
+   * what is enforced. Both null means unlicensed until a trial or key arrives.
+   */
   trialStartedAt: integer('trial_started_at', { mode: 'timestamp_ms' }),
+  trialEndsAt: integer('trial_ends_at', { mode: 'timestamp_ms' }),
   licenceKey: text('licence_key'),
   /** Latest time ever observed — winding the PC clock back cannot rewind expiry. */
   clockHighWater: integer('clock_high_water', { mode: 'timestamp_ms' }),

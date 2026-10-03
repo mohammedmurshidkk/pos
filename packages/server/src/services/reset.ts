@@ -227,7 +227,7 @@ export function clearEverything() {
       priceIncludesTax: true, serviceChargeBp: 0,
       invoicePrefix: 'INV-', invoiceNextNo: 1, orderNextNo: 1,
       businessDayStartHour: 0, defaultKitchenId: null, requirePinOnAction: false,
-      // installId, trialStartedAt, licenceKey, clockHighWater and superadminHash
+      // installId, trialStartedAt, trialEndsAt, licenceKey, clockHighWater and superadminHash
       // are deliberately absent — losing them would cost the shop its licence
       // and lock the superadmin out of the installation it just reset.
     }).where(eq(s.settings.id, 'singleton')).run()

@@ -52,6 +52,10 @@ describe('signing in', () => {
     expect(() => S.requireSuperadmin(undefined)).toThrow(/session has ended/i)
   })
 
+  it('refuses first-time setup once a password exists', () => {
+    expect(() => S.setupSuperadmin('another-password')).toThrow(/already set up/i)
+  })
+
   it('ends the session on logout', () => {
     const { token } = S.superadminLogin(PASSWORD, '127.0.0.1')
     S.superadminLogout(token)
@@ -81,7 +85,7 @@ describe('managing this unit\'s admins', () => {
 
   it('refuses a duplicate name and a bad PIN', () => {
     expect(() => S.createAdmin({ name: 'nadia', pin: '1111' })).toThrow(/already exists/i)
-    expect(() => S.createAdmin({ name: 'Omar', pin: '12' })).toThrow(/4 to 6 digits/i)
+    expect(() => S.createAdmin({ name: 'Omar', pin: '12' })).toThrow(/4 digits/i)
   })
 
   it('resets a forgotten PIN — the reason this exists', () => {

@@ -86,9 +86,23 @@ describe('setting a PIN', () => {
     expect(rows.every((l) => !(l.detailJson ?? '').includes('9876'))).toBe(true)
   })
 
-  it('rejects a PIN that is not 4 to 6 digits', () => {
+  it('rejects a PIN that is not exactly 4 digits', () => {
     const id = emp('Suhail').id
-    expect(() => M.updateMaster('employees', id, { pin: '12' }, emp('Fatima').id)).toThrow(/4 to 6 digits/i)
-    expect(() => A.setPin(id, 'abcd', emp('Fatima').id)).toThrow(/4 to 6 digits/i)
+    expect(() => M.updateMaster('employees', id, { pin: '12' }, emp('Fatima').id)).toThrow(/4 digits/i)
+    expect(() => A.setPin(id, 'abcd', emp('Fatima').id)).toThrow(/4 digits/i)
+    // Sign-in submits on the fourth digit, so a longer PIN could never be typed.
+    expect(() => A.setPin(id, '123456', emp('Fatima').id)).toThrow(/4 digits/i)
+  })
+})
+
+describe('changing your own PIN', () => {
+  it('needs the current PIN, then the new one works', () => {
+    const fatima = emp('Fatima')
+    A.setPin(fatima.id, '1234', fatima.id)
+    expect(() => A.changeOwnPin(fatima.id, '0000', '5678')).toThrow(/current pin is wrong/i)
+    expect(() => A.changeOwnPin(fatima.id, '1234', '1234')).toThrow(/different/i)
+    expect(() => A.changeOwnPin(fatima.id, '1234', '56')).toThrow(/4 digits/i)
+    A.changeOwnPin(fatima.id, '1234', '5678')
+    expect(A.login(fatima.id, '5678').name).toBe('Fatima')
   })
 })

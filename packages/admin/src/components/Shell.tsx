@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import { Login } from '../screens/Login'
 import { OpenCounter } from '../screens/OpenCounter'
+import { timeLeft } from '../licence'
 import { useStore } from '../store'
-import { Banner, Button } from './ui'
+import { Banner, Button, Field, Modal, inputStyle } from './ui'
 
 const NAV = [
   { to: '/billing', label: 'Billing' },
@@ -41,12 +42,76 @@ function PrinterStrip() {
 
 function OperatorChip() {
   const { operator, signOut } = useStore()
+  const [changing, setChanging] = useState(false)
   if (!operator) return null
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ fontWeight: 600 }}>{operator.name}</span>
+      <Button variant="ghost" onClick={() => setChanging(true)}>Change PIN</Button>
       <Button variant="ghost" onClick={signOut}>Sign out</Button>
+      {changing ? <ChangePin employeeId={operator.id} onClose={() => setChanging(false)} /> : null}
     </div>
+  )
+}
+
+/** Replacing the starting PIN the superadmin handed over — or any time after. */
+function ChangePin({ employeeId, onClose }: { employeeId: string; onClose: () => void }) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [again, setAgain] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 4)
+  const ready = current.length === 4 && next.length === 4 && next === again && !busy
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.changePin(employeeId, current, next)
+      setDone(true)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reach the hub.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const pinInput = (value: string, set: (v: string) => void, autoFocus = false) => (
+    <input
+      style={{ ...inputStyle, letterSpacing: 6, fontSize: 20 }}
+      type="password" inputMode="numeric" autoFocus={autoFocus} value={value}
+      onChange={(e) => set(digits(e.target.value))}
+      onKeyDown={(e) => { if (e.key === 'Enter' && ready) void submit() }}
+    />
+  )
+
+  return (
+    <Modal title="Change your PIN" subtitle="Four digits. You will use it the next time you sign in." onClose={onClose} width={440}>
+      {done ? (
+        <>
+          <Banner tone="success">Your PIN has been changed.</Banner>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="primary" onClick={onClose}>Done</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {error ? <Banner tone="danger">{error}</Banner> : null}
+          <Field label="Current PIN">{pinInput(current, setCurrent, true)}</Field>
+          <Field label="New PIN">{pinInput(next, setNext)}</Field>
+          <Field label="New PIN again">{pinInput(again, setAgain)}</Field>
+          {again.length === 4 && next !== again ? <Banner tone="warning">The new PINs do not match.</Banner> : null}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={!ready} onClick={() => void submit()}>
+              {busy ? 'Saving…' : 'Change PIN'}
+            </Button>
+          </div>
+        </>
+      )}
+    </Modal>
   )
 }
 
@@ -116,7 +181,7 @@ export function Shell() {
   // Payments need an open shift, so the app is gated on one. The hub says when
   // a shift cannot be opened (licence expired and nothing left to settle);
   // then let the cashier in to read reports and renew instead of trapping them.
-  const expired = data.licence?.state === 'expired'
+  const expired = data.licence?.state === 'expired' || data.licence?.state === 'unlicensed'
   if (shiftOpen === false && canOpen) return <OpenCounter onOpened={() => setShiftOpen(true)} />
 
   return (
@@ -160,9 +225,11 @@ export function Shell() {
             <div style={{ marginBottom: 16 }}>
               <Banner tone={expired ? 'danger' : 'warning'}>
                 <span style={{ flex: 1 }}>
-                  {expired
+                  {data.licence.state === 'unlicensed'
+                    ? 'This hub has no licence or trial yet, so new orders and shifts are blocked. Activate a licence key, or ask your supplier for a trial.'
+                    : expired
                     ? `${data.licence.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired'}. New orders are blocked; open orders can still be billed and settled.`
-                    : `${data.licence.plan === 'trial' ? 'Free trial' : 'Licence'} ends in ${data.licence.daysLeft} day${data.licence.daysLeft === 1 ? '' : 's'}.`}
+                    : `${data.licence.plan === 'trial' ? 'Free trial' : 'Licence'} ends in ${timeLeft(data.licence.msLeft)}.`}
                 </span>
                 <NavLink to="/licence" style={{ fontWeight: 600, color: 'inherit' }}>Open Licence</NavLink>
               </Banner>

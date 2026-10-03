@@ -38,6 +38,8 @@ export const setSuperadminToken = (token: string | null) => { superadminToken = 
 const sa = (): Record<string, string> =>
   superadminToken ? { 'x-superadmin-token': superadminToken } : {}
 
+export type TrialUnit = 'minutes' | 'hours' | 'days'
+
 export interface InventoryGroup {
   id: string
   label: string
@@ -61,6 +63,14 @@ export const superadmin = {
   status: () => request<{ configured: boolean }>('/api/superadmin/status'),
   login: (password: string) =>
     post<{ token: string; expiresAt: string }>('/api/superadmin/login', { password }),
+  /** First run only: choose the password. Answers with a session, like login. */
+  setup: (password: string) =>
+    post<{ token: string; expiresAt: string }>('/api/superadmin/setup', { password }),
+  licence: () => request<LicenceStatus>('/api/superadmin/licence', { headers: sa() }),
+  grantTrial: (value: number, unit: TrialUnit) =>
+    request<LicenceStatus>('/api/superadmin/trial', { method: 'POST', headers: sa(), body: JSON.stringify({ value, unit }) }),
+  installLicence: (key: string) =>
+    request<LicenceStatus>('/api/superadmin/licence', { method: 'POST', headers: sa(), body: JSON.stringify({ key }) }),
   logout: () => request<{ ok: true }>('/api/superadmin/logout', { method: 'POST', headers: sa() }),
   admins: () => request<AdminRow[]>('/api/superadmin/admins', { headers: sa() }),
   createAdmin: (name: string, pin: string) =>
@@ -141,6 +151,8 @@ export const api = {
     post<{ id: string; name: string; role: 'admin' | 'waiter'; canDiscount: boolean; canSaveWithoutKot: boolean }>(
       '/api/auth/login', { employeeId, pin },
     ),
+  changePin: (employeeId: string, currentPin: string, newPin: string) =>
+    post<{ ok: true }>('/api/auth/change-pin', { employeeId, currentPin, newPin }),
 
   masters: <T = Record<string, unknown>>(entity: string) => request<T[]>(`/api/masters/${entity}`),
   createMaster: <T>(entity: string, body: Record<string, unknown>, employeeId: string) =>

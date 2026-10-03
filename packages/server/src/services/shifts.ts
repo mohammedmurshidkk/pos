@@ -32,12 +32,13 @@ function unsettledOrderCount(): number {
  * Whether a shift may be opened now.
  *
  * Settling needs an open shift, and an expired licence must never strand a
- * seated table. So expiry blocks a new shift only when there is nothing left to
+ * seated table. So expiry (or no licence at all) blocks a new shift only when there is nothing left to
  * settle; while unsettled orders remain, a shift can be opened to take their
  * money. New orders stay blocked either way.
  */
 export function canOpenShift(): boolean {
-  return licenceStatus().state !== 'expired' || unsettledOrderCount() > 0
+  const { state } = licenceStatus()
+  return (state !== 'expired' && state !== 'unlicensed') || unsettledOrderCount() > 0
 }
 
 export function openShift(input: { counterId: string; employeeId: string; openingFloat: number }) {

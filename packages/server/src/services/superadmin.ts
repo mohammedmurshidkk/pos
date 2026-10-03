@@ -46,7 +46,7 @@ export function superadminLogin(password: string, clientKey: string) {
 
   const hash = settingsRow().superadminHash
   if (!hash) {
-    throw forbidden('No superadmin password is set on this installation. Set one with `pnpm superadmin:set` on this PC.')
+    throw forbidden('This installation has not been set up yet. Restart the app on this PC to see the first-time setup.')
   }
 
   if (!verifyPin(password, hash)) {
@@ -57,10 +57,32 @@ export function superadminLogin(password: string, clientKey: string) {
   }
 
   attempts.delete(clientKey)
+  audit(null, 'superadmin.login', 'settings', 'singleton', null)
+  return openSession()
+}
+
+function openSession() {
   const token = randomBytes(24).toString('base64url')
   sessions.set(token, Date.now() + SESSION_MS)
-  audit(null, 'superadmin.login', 'settings', 'singleton', null)
   return { token, expiresAt: new Date(Date.now() + SESSION_MS).toISOString() }
+}
+
+/**
+ * First-time setup: a fresh install has no superadmin password, no admin and no
+ * trial. Whoever installs it (the supplier) chooses the password here, then adds
+ * the first admin and grants the trial from the superadmin screen.
+ *
+ * Works exactly once — afterwards the password can only be changed by someone
+ * who already knows it, or with `pnpm superadmin:set` on the PC itself. Counter
+ * PC only, like every superadmin route.
+ */
+export function setupSuperadmin(password: string) {
+  if (superadminConfigured()) {
+    throw conflict('This installation is already set up. Use the superadmin password to get in.')
+  }
+  setSuperadminPassword(password)
+  audit(null, 'superadmin.setup', 'settings', 'singleton', null)
+  return openSession()
 }
 
 /** Throws unless the token is live. Extends it — the clock runs from last use. */
@@ -98,8 +120,9 @@ export function listAdmins() {
     .map(({ pinHash, ...rest }) => ({ ...rest, hasPin: pinHash != null }))
 }
 
+// Exactly four: the counter keypad signs in on the fourth digit.
 const assertPin = (pin: string) => {
-  if (!/^\d{4,6}$/.test(pin)) throw conflict('A PIN must be 4 to 6 digits.')
+  if (!/^\d{4}$/.test(pin)) throw conflict('A PIN must be 4 digits.')
 }
 
 export function createAdmin(input: { name: string; pin: string }) {

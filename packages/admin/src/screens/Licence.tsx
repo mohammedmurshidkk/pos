@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { LicenceStatus } from '../api/types'
 import { Banner, Button, Pill } from '../components/ui'
+import { timeLeft } from '../licence'
 import { useStore } from '../store'
 
-const dateOf = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+const dateOf = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 /**
  * Licence and trial.
@@ -36,9 +37,12 @@ export function Licence() {
 
   if (!status) return <div className="muted">Loading…</div>
 
-  const tone = status.state === 'expired' ? 'danger' : status.warning ? 'warning' : status.state === 'active' ? 'success' : 'info'
+  const blocked = status.state === 'expired' || status.state === 'unlicensed'
+  const tone = blocked ? 'danger' : status.warning ? 'warning' : status.state === 'active' ? 'success' : 'info'
   const headline =
-    status.state === 'expired'
+    status.state === 'unlicensed'
+      ? 'Not licensed yet'
+      : status.state === 'expired'
       ? (status.plan === 'trial' ? 'The free trial has ended' : 'The licence has expired')
       : status.state === 'active'
         ? `Licensed${status.customer ? ` to ${status.customer}` : ''}`
@@ -88,12 +92,14 @@ export function Licence() {
       <div className="card" style={{ padding: 24, display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ fontSize: 22 }}>{headline}</h2>
-          <Pill label={status.state === 'active' ? 'Active' : status.state === 'expired' ? 'Expired' : 'Trial'} tone={tone} />
+          <Pill label={{ unlicensed: 'Not licensed', active: 'Active', expired: 'Expired', trial: 'Trial' }[status.state]} tone={tone} />
         </div>
         <div className="muted">
-          {status.state === 'expired'
+          {status.state === 'unlicensed'
+            ? 'No trial has been started and no licence key is active, so new orders and new shifts are blocked. Activate a key below, or ask your supplier to start a trial.'
+            : status.state === 'expired'
             ? `Ended ${dateOf(status.expiresAt)}. New orders and new shifts are blocked; open orders can still be billed and settled.`
-            : `${status.daysLeft} day${status.daysLeft === 1 ? '' : 's'} left — until ${dateOf(status.expiresAt)}.`}
+            : `${timeLeft(status.msLeft)} left — until ${dateOf(status.expiresAt)}.`}
         </div>
       </div>
 

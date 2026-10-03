@@ -121,8 +121,10 @@ export default function Home() {
       {data?.licence?.warning ? (
         <View style={styles.bannerWrap}>
           <Banner
-            tone={data.licence.state === 'expired' ? 'danger' : 'warning'}
-            message={data.licence.state === 'expired'
+            tone={data.licence.state === 'expired' || data.licence.state === 'unlicensed' ? 'danger' : 'warning'}
+            message={data.licence.state === 'unlicensed'
+              ? 'This hub has no licence yet, so new orders cannot be sent. Ask the manager.'
+              : data.licence.state === 'expired'
               ? 'The licence has expired. Open orders can still take another round — ask the manager to renew.'
               : `Licence ends in ${data.licence.daysLeft} day${data.licence.daysLeft === 1 ? '' : 's'}.`}
           />

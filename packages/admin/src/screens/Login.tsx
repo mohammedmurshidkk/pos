@@ -91,6 +91,11 @@ export function Login() {
 
         <div>
           <div className="label" style={{ marginBottom: 8 }}>Who is at the counter?</div>
+          {admins.length === 0 ? (
+            <Banner tone="info">
+              No admin has been set up yet. Your supplier adds the first admin and gives them a starting PIN.
+            </Banner>
+          ) : null}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {admins.map((e) => {
               const active = picked?.id === e.id

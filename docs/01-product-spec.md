@@ -409,14 +409,17 @@ Non-negotiable for MVP:
 
 ## 10. Licensing / trial — built
 
-- **30-day free trial** starts automatically on first run. No key needed.
+- **No automatic trial.** A fresh install is *not licensed*: new orders and new shifts are blocked until the superadmin grants a trial or a key is activated.
+- **First run:** the cashier UI opens on *First-time setup* — choose the superadmin password, add the first admin with a starting PIN, then grant the trial. The admin changes the starting PIN after signing in.
+- **Trial** = granted by the superadmin in **minutes, hours or days** (minutes and hours are for testing expiry). It runs from the moment it is granted and replaces any earlier trial; at most 366 days. *End trial now* is there for testing.
 - **Paid licence** = a key signed by the vendor (Ed25519), bound to the installation's **install id**, shown on the counter PC under Licence. Format `POS1.<payload>.<signature>`.
 - The install id is stored in the **database, not derived from hardware**. Restoring a shift-close backup onto a replacement PC keeps the licence — a dead PC must not lock a restaurant out.
 - Warn from **7 days** before expiry, on the counter and on tablets.
 - **On expiry: no new orders, no new shifts.** Adding a round to an already-open order, billing, settling, closing the shift and reports all keep working — **never hard-lock mid-service.**
 - Because settling needs an open shift, **an expired install may still open a shift while any order is unsettled** (`open` or `billed`). Once nothing is left to settle, new shifts are blocked. `GET /api/shifts/current` returns `canOpen`, and the cashier UI only shows the open-counter step when it is true.
 - Setting the PC clock back does **not** extend a licence: expiry is measured from the latest time the install has ever seen.
-- Vendor tooling: `tools/licence.mjs` (`keygen`, `sign`, `inspect`). The private key never leaves the vendor's machine.
+- If a paid key and a trial both exist, whichever ends later counts — a trial can bridge a lapsed key until the renewal arrives.
+- Vendor tooling: `tools/licence-generator.html` (open in a browser — minutes/hours/days, no terminal) and `tools/licence.mjs` (`keygen`, `sign`, `inspect`). The private key never leaves the vendor's machine.
 
 ### Device pairing — built
 
