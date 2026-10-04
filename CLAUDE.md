@@ -144,6 +144,10 @@ router (`components/SuperadminDoor.tsx`) so it works **while the sign-in screen
 is showing** — which is the whole point, since it exists for "every admin PIN is
 forgotten".
 
+> **Update 2026-10-04 (5):** on a touch till with no keyboard, **press and hold
+> the brand mark on the sign-in screen for 5 seconds** — same password prompt,
+> still no label (`HiddenDoor` in `screens/Login.tsx` fires `OPEN_SUPERADMIN`).
+
 Inside, two tabs:
 - **Admins** — add, reset a PIN, enable/disable, change the superadmin password.
 - **Clear data** — hand a tested hub over as a fresh one.
@@ -332,6 +336,17 @@ Arabic (deferred).
 > `dataFolder`, not the app name, and `legacyDataFolders` moves an old folder
 > across. See `brand/README.md`. The vendor key folder is now `~/.zentivo-pos/`,
 > with fallback to `~/.almanzil-pos/`.
+
+> **Update 2026-10-04 (5):** **touch-till shell.** The sidebar is gone: one 64px
+> **top bar** (Floor · Billing · + New order · printer pill · **More** · Name ▾),
+> in `admin/src/components/TopBar.tsx` with the screen list in `nav.ts`. Home is
+> **Floor** after every sign-in. **Setup, Settings, Devices and Licence ask for the
+> admin's PIN again** (`AdminGate.tsx`, `POST /api/auth/confirm`, shares the
+> sign-in lockout, audited `auth.unlock`). The Electron window opens in **kiosk
+> mode** (Windows taskbar hidden); Name ▾ → Exit full screen (asks for the PIN)
+> or the tray menu leaves it, `POS_KIOSK=0` starts windowed for development. The
+> UI reaches Electron only through `window.desktop` from `desktop/src/preload.ts`
+> (built to `dist/preload.cjs` by `build:main`).
 
 **The v0.2.0 installer is broken** — it predates the loopback fix above and
 cannot reach its own hub. Rebuild before any Windows test.

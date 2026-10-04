@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { Employee } from '../api/types'
 import { brand } from '../brand'
 import { BrandMark } from '../components/BrandMark'
-import { Banner, Button } from '../components/ui'
+import { PIN_LENGTH, PinPad } from '../components/PinPad'
+import { OPEN_SUPERADMIN } from '../components/SuperadminDoor'
+import { Banner, Button, initials } from '../components/ui'
 import { useStore } from '../store'
 
-const PIN_LENGTH = 4
-/** Two letters: initials for a full name, the first two for a single name. */
-const initials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  const source = parts.length > 1 ? parts.map((p) => p[0] ?? '').join('') : (parts[0] ?? '')
-  return source.slice(0, 2).toUpperCase()
-}
+/** Long enough that nobody opens it by resting a finger on the logo. */
+const DOOR_HOLD_MS = 5000
 
 /**
  * A01 — counter sign-in.
@@ -23,6 +21,7 @@ const initials = (name: string) => {
  */
 export function Login() {
   const { data, signIn, counterId } = useStore()
+  const navigate = useNavigate()
   const [picked, setPicked] = useState<Employee | null>(null)
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -37,6 +36,8 @@ export function Login() {
     setError(null)
     try {
       signIn(await api.login(employee.id, code))
+      // The floor is home: every sign-in starts there, wherever the last one ended.
+      navigate('/floor', { replace: true })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the hub.')
       setPin('')
@@ -50,34 +51,6 @@ export function Login() {
     if (picked && pin.length === PIN_LENGTH && !busy) void submit(picked, pin)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, picked])
-
-  // The keypad is there for a touch till; a keyboard is faster on a desktop PC.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!picked) return
-      if (/^\d$/.test(e.key)) setPin((p) => (p.length < PIN_LENGTH ? p + e.key : p))
-      else if (e.key === 'Backspace') setPin((p) => p.slice(0, -1))
-      else if (e.key === 'Escape') { setPicked(null); setPin('') }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [picked])
-
-  const key = (label: string, onClick: () => void, disabled = false) => (
-    <button
-      key={label}
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        height: 72, fontSize: 26, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
-        background: disabled ? 'transparent' : 'var(--surface)',
-        border: disabled ? 'none' : '1px solid var(--border)',
-        borderRadius: 'var(--r-button)',
-      }}
-    >
-      {label}
-    </button>
-  )
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
@@ -135,33 +108,49 @@ export function Login() {
 
         {picked ? (
           <div style={{ display: 'grid', gap: 16, justifyItems: 'center' }}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {Array.from({ length: PIN_LENGTH }, (_, i) => (
-                <span key={i} style={{
-                  width: 14, height: 14, borderRadius: 7,
-                  background: i < pin.length ? 'var(--primary)' : 'transparent',
-                  border: `2px solid ${i < pin.length ? 'var(--primary)' : 'var(--border-strong)'}`,
-                }} />
-              ))}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 88px)', gap: 10 }}>
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) =>
-                key(n, () => setPin((p) => (p.length < PIN_LENGTH ? p + n : p))))}
-              {key('', () => {}, true)}
-              {key('0', () => setPin((p) => (p.length < PIN_LENGTH ? p + '0' : p)))}
-              {key('⌫', () => setPin((p) => p.slice(0, -1)))}
-            </div>
-
-            <div className="faint" style={{ fontSize: 12 }}>
-              {busy ? 'Checking…' : 'Type the PIN, or use the number keys'}
-            </div>
+            <PinPad
+              value={pin}
+              onChange={setPin}
+              onCancel={() => { setPicked(null); setPin('') }}
+              busy={busy}
+            />
             <Button variant="ghost" onClick={() => { setPicked(null); setPin('') }}>Choose someone else</Button>
           </div>
         ) : null}
 
-        <div style={{ justifySelf: 'center' }}><BrandMark /></div>
+        <HiddenDoor><BrandMark /></HiddenDoor>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Press and hold the brand mark for five seconds to open Superadmin — the touch
+ * twin of Ctrl + Alt + Shift + A, for a till with no keyboard. Like the
+ * shortcut it has no label; it is in CLAUDE.md and the handover notes.
+ */
+function HiddenDoor({ children }: { children: React.ReactNode }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  useEffect(() => stop, [])
+  return (
+    <div
+      style={{ justifySelf: 'center', padding: 8, userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' }}
+      onPointerDown={() => {
+        stop()
+        timer.current = setTimeout(() => window.dispatchEvent(new Event(OPEN_SUPERADMIN)), DOOR_HOLD_MS)
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      // A long touch otherwise opens the browser's context menu.
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+    >
+      {children}
     </div>
   )
 }

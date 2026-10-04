@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { Customer, Item, Order, OrderType } from '../api/types'
 import { CustomerFields } from '../components/CustomerFields'
-import { Banner, Button, EmptyState, Field, Modal, inputStyle } from '../components/ui'
+import { Banner, Button, EmptyState, Field, Modal, initials, inputStyle } from '../components/ui'
 import { useStore } from '../store'
 
 const TYPES: { id: OrderType; label: string; color: string }[] = [
@@ -43,7 +43,9 @@ export function OrderEntry() {
   const navigate = useNavigate()
   const { data, operator, money } = useStore()
   // Opened from the floor view: a tapped table, or a Takeaway/Car/Delivery button.
-  const start = (useLocation().state as { type?: OrderType; tableId?: string } | null) ?? {}
+  const location = useLocation()
+  const canGoBack = location.key !== 'default'
+  const start = (location.state as { type?: OrderType; tableId?: string } | null) ?? {}
 
   const [existing, setExisting] = useState<Order | null>(null)
   const [type, setType] = useState<OrderType>(start.type ?? (start.tableId ? 'dine_in' : 'takeaway'))
@@ -56,7 +58,8 @@ export function OrderEntry() {
   const [customerName, setCustomerName] = useState('')
   const [known, setKnown] = useState<Customer | null>(null)
   const [address, setAddress] = useState('')
-  const [waiterId, setWaiterId] = useState<string>('')
+  /** Set while the "who is serving?" picker is open, holding which button opened it. */
+  const [askingWaiter, setAskingWaiter] = useState<{ suppressKot: boolean } | null>(null)
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
@@ -72,9 +75,6 @@ export function OrderEntry() {
     api.openOrders().then(setOpenOrders).catch(() => { /* table badges are a nicety */ })
   }, [existingId])
 
-  useEffect(() => {
-    if (!waiterId && operator) setWaiterId(operator.id)
-  }, [operator, waiterId])
 
   const areas = data?.areas ?? []
   const activeArea = areaId ?? data?.tables.find((t) => t.id === tableId)?.areaId ?? areas[0]?.id ?? null
@@ -119,10 +119,21 @@ export function OrderEntry() {
     : type === 'delivery' && (!phone.trim() || !address.trim()) ? 'Enter the phone number and address.'
     : null
 
-  const send = async (suppressKot: boolean) => {
+  /**
+   * A new order asks who serves it (the sales credit) as the last step, like the
+   * tablet: one tap on a name sends it. A round added to an open order keeps
+   * that order's waiter, so it sends straight away.
+   */
+  const startSend = (suppressKot: boolean) => {
     if (!operator) return setError('Sign in at the counter first.')
     if (detailsMissing) return setError(detailsMissing)
     if (cart.length === 0) return setError('Add at least one item.')
+    if (existing) void send(suppressKot, null)
+    else setAskingWaiter({ suppressKot })
+  }
+
+  const send = async (suppressKot: boolean, waiterId: string | null) => {
+    if (!operator) return setError('Sign in at the counter first.')
     setBusy(true)
     setError(null)
     try {
@@ -153,6 +164,7 @@ export function OrderEntry() {
       navigate('/billing', { state: { orderId } })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the hub. Nothing was sent.')
+      setAskingWaiter(null)
       setBusy(false)
     }
   }
@@ -278,12 +290,6 @@ export function OrderEntry() {
                 </Field>
               </>
             ) : null}
-
-            <Field label="Waiter (gets the sales credit)">
-              <select style={inputStyle} value={waiterId} onChange={(e) => setWaiterId(e.target.value)}>
-                {(data?.employees ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-            </Field>
           </>
         )}
       </section>
@@ -352,13 +358,19 @@ export function OrderEntry() {
           <span className="muted">{existing ? 'This round' : 'Items total'}</span>
           <span className="money" style={{ fontWeight: 600 }}>{money(cartTotal)}</span>
         </div>
-        <Button variant="primary" disabled={busy || cart.length === 0} onClick={() => void send(false)}>
+        <Button variant="primary" disabled={busy || cart.length === 0} onClick={() => startSend(false)}>
           Send to kitchen
         </Button>
         {operator?.canSaveWithoutKot ? (
-          <Button disabled={busy || cart.length === 0} onClick={() => void send(true)}>Save without KOT</Button>
+          <Button disabled={busy || cart.length === 0} onClick={() => startSend(true)}>Save without KOT</Button>
         ) : null}
-        <Button variant="ghost" onClick={() => navigate('/billing', existing ? { state: { orderId: existing.id } } : undefined)}>Cancel</Button>
+        <Button
+          variant="ghost"
+          onClick={() => existing
+            ? navigate('/billing', { state: { orderId: existing.id } })
+            // A new order goes back where it started — usually the floor.
+            : canGoBack ? navigate(-1) : navigate('/floor')}
+        >Cancel</Button>
       </section>
 
       {picking ? (
@@ -369,7 +381,82 @@ export function OrderEntry() {
           onAdd={(qty, note, mods) => { addToCart(picking, qty, note, mods); setPicking(null) }}
         />
       ) : null}
+
+      {askingWaiter && operator ? (
+        <WaiterPicker
+          employees={data?.employees ?? []}
+          operatorId={operator.id}
+          busy={busy}
+          action={askingWaiter.suppressKot ? 'save' : 'send'}
+          onPick={(id) => void send(askingWaiter.suppressKot, id)}
+          onCancel={() => setAskingWaiter(null)}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/**
+ * Who serves this order — they get the sales credit. The counter's version of
+ * the tablet's employee picker: big name tiles, and the tap IS the send.
+ *
+ * Unlike the tablet, the signed-in person is highlighted and listed first: the
+ * counter has a real sign-in, and a walk-in takeaway is usually served by
+ * whoever is at the till, so that case stays one tap.
+ */
+function WaiterPicker({ employees, operatorId, busy, action, onPick, onCancel }: {
+  employees: { id: string; name: string; role: string }[]
+  operatorId: string
+  busy: boolean
+  action: 'send' | 'save'
+  onPick: (employeeId: string) => void
+  onCancel: () => void
+}) {
+  // You first, then the waiters, then the other admins.
+  const rank = (e: { id: string; role: string }) => (e.id === operatorId ? 0 : e.role === 'waiter' ? 1 : 2)
+  const list = [...employees].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+
+  return (
+    <Modal
+      title="Who is serving this order?"
+      subtitle={`They get the sales credit. Tap a name to ${action === 'send' ? 'send it to the kitchen' : 'save it'}.`}
+      onClose={busy ? () => {} : onCancel}
+      width={720}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+        {list.map((e) => {
+          const you = e.id === operatorId
+          return (
+            <button
+              key={e.id}
+              disabled={busy}
+              onClick={() => onPick(e.id)}
+              style={{
+                height: 140, borderRadius: 'var(--r-card)', cursor: busy ? 'wait' : 'pointer',
+                display: 'grid', placeItems: 'center', alignContent: 'center', gap: 8, padding: 8,
+                border: `${you ? 2 : 1}px solid ${you ? 'var(--primary)' : 'var(--border)'}`,
+                background: you ? 'var(--primary-subtle)' : 'var(--surface-alt)',
+                opacity: busy ? 0.6 : 1, touchAction: 'manipulation',
+              }}
+            >
+              <span style={{
+                width: 52, height: 52, borderRadius: 26, background: 'var(--primary)',
+                color: 'var(--on-primary)', display: 'grid', placeItems: 'center', fontSize: 18, fontWeight: 700,
+              }}>{initials(e.name)}</span>
+              <span style={{ fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {e.name}
+              </span>
+              <span className={you ? undefined : 'faint'} style={{ fontSize: 12, fontWeight: 600, color: you ? 'var(--primary)' : undefined }}>
+                {you ? 'You · signed in' : e.role === 'waiter' ? 'Waiter' : 'Admin'}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <Button onClick={onCancel} disabled={busy} style={{ minHeight: 52 }}>
+        {busy ? (action === 'send' ? 'Sending…' : 'Saving…') : 'Cancel'}
+      </Button>
+    </Modal>
   )
 }
 

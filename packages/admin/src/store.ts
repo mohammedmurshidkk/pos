@@ -22,6 +22,12 @@ interface State {
   setQueueOpen: (open: boolean) => void
   signIn: (employee: Employee) => void
   signOut: () => void
+  /**
+   * The admin screens (Setup, Settings, Devices, Licence) ask for the PIN again.
+   * Memory only, and dropped when the cashier leaves that area or signs out.
+   */
+  adminUnlocked: boolean
+  setAdminUnlocked: (unlocked: boolean) => void
   setCounter: (id: string) => void
   money: (minor: number) => string
   employeeName: (id: string | null | undefined) => string
@@ -45,6 +51,7 @@ export const useStore = create<State>((set, get) => ({
   printersChecked: false,
   jobCounts: {},
   queueOpen: false,
+  adminUnlocked: false,
   operator: restoreOperator(),
   counterId: null,
   error: null,
@@ -111,8 +118,9 @@ export const useStore = create<State>((set, get) => ({
   },
   signOut: () => {
     try { sessionStorage.removeItem(OPERATOR_KEY) } catch { /* ignore */ }
-    set({ operator: null })
+    set({ operator: null, adminUnlocked: false })
   },
+  setAdminUnlocked: (adminUnlocked) => set({ adminUnlocked }),
   setCounter: (id) => {
     try { localStorage.setItem(COUNTER_KEY, id) } catch { /* ignore */ }
     set({ counterId: id })

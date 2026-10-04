@@ -1,6 +1,14 @@
 export type Row = Record<string, unknown> & { id: string }
 
-export type Field =
+/** On every field: a line of help under it in the form, and when to show it there. */
+interface FieldCommon {
+  help?: string
+  showIf?: (values: Record<string, unknown>) => boolean
+  /** Other fields to change in the form when this one changes. */
+  alsoSets?: (value: unknown) => Record<string, unknown>
+}
+
+export type Field = FieldCommon & (
   | { key: string; label: string; kind: 'text'; placeholder?: string; width?: number }
   | { key: string; label: string; kind: 'number'; min?: number; max?: number; width?: number }
   | { key: string; label: string; kind: 'money'; width?: number }
@@ -12,6 +20,9 @@ export type Field =
       choices?: { value: string; label: string }[]
       nullable?: boolean
     }
+)
+
+const notCash = (v: Record<string, unknown>) => v.type !== 'cash'
 
 export interface MasterSpec {
   entity: string
@@ -77,7 +88,8 @@ export const MASTERS: MasterSpec[] = [
     fields: [
       { key: 'name', label: 'Name', kind: 'text', width: 220 },
       { key: 'kitchenId', label: 'Kitchen', kind: 'select', from: 'kitchens', nullable: true, width: 220 },
-      { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 90 },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'Where it sits in the menu on the tablet and the counter. 1 comes first.' },
       { key: 'active', label: 'Active', kind: 'bool', width: 90 },
     ],
     defaults: { sort: 0, active: true },
@@ -94,7 +106,8 @@ export const MASTERS: MasterSpec[] = [
       { key: 'categoryId', label: 'Category', kind: 'select', from: 'categories', width: 180 },
       { key: 'price', label: 'Price', kind: 'money', width: 120 },
       { key: 'isAvailable', label: 'Available', kind: 'bool', width: 100 },
-      { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 80 },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'Where it sits inside its category on the tablet and the counter. 1 comes first.' },
       { key: 'active', label: 'Active', kind: 'bool', width: 80 },
     ],
     defaults: { price: 0, isAvailable: true, sort: 0, active: true },
@@ -132,7 +145,8 @@ export const MASTERS: MasterSpec[] = [
     hint: 'Ground floor, family section, terrace.',
     fields: [
       { key: 'name', label: 'Name', kind: 'text', width: 260 },
-      { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 90 },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'The order of the area tabs on the floor, the tablet and New order. 1 comes first.' },
       { key: 'active', label: 'Active', kind: 'bool', width: 90 },
     ],
     defaults: { sort: 0, active: true },
@@ -145,7 +159,8 @@ export const MASTERS: MasterSpec[] = [
       { key: 'name', label: 'Name', kind: 'text', width: 160 },
       { key: 'areaId', label: 'Area', kind: 'select', from: 'areas', width: 200 },
       { key: 'seats', label: 'Seats', kind: 'number', min: 1, max: 40, width: 90 },
-      { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 80 },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'Where the table sits inside its area on the floor and the tablet. 1 comes first.' },
       { key: 'active', label: 'Active', kind: 'bool', width: 90 },
     ],
     defaults: { seats: 4, sort: 0, active: true },
@@ -176,12 +191,18 @@ export const MASTERS: MasterSpec[] = [
         { value: 'cash', label: 'Cash' }, { value: 'card', label: 'Card' },
         { value: 'wallet', label: 'Wallet' }, { value: 'credit', label: 'Credit' },
         { value: 'online', label: 'Online' },
-      ] },
-      { key: 'merchantName', label: 'Merchant', kind: 'text', width: 130 },
-      { key: 'terminalId', label: 'Terminal ID', kind: 'text', width: 130 },
-      { key: 'requiresRef', label: 'Needs ref', kind: 'bool', width: 100 },
-      { key: 'opensCashDrawer', label: 'Opens drawer', kind: 'bool', width: 120 },
-      { key: 'countsInCashClosing', label: 'Counts as cash', kind: 'bool', width: 130 },
+      ],
+        // The hub derives the cash handling from the type (normalisePaymentMode),
+        // so there is no "Counts as cash" switch to forget.
+        help: 'Cash is counted when the shift closes. No other type is counted as cash.',
+        // A new cash mode almost always pops the drawer; it can still be switched off.
+        alsoSets: (v) => (v === 'cash' ? { opensCashDrawer: true } : {}) },
+      { key: 'merchantName', label: 'Merchant', kind: 'text', width: 130, showIf: notCash },
+      { key: 'terminalId', label: 'Terminal ID', kind: 'text', width: 130, showIf: notCash },
+      { key: 'requiresRef', label: 'Needs ref', kind: 'bool', width: 100, showIf: notCash,
+        help: 'Ask for the slip or approval number at settle.' },
+      { key: 'opensCashDrawer', label: 'Opens drawer', kind: 'bool', width: 120,
+        help: 'Pop the cash drawer when this payment is settled.' },
       { key: 'active', label: 'Active', kind: 'bool', width: 80 },
     ],
     defaults: {

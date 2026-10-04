@@ -148,6 +148,34 @@ describe('settings', () => {
   })
 })
 
+describe('payment mode type decides the cash handling', () => {
+  type PM = { id: string; opensCashDrawer: boolean; countsInCashClosing: boolean; requiresRef: boolean; merchantName: string | null }
+
+  it('a cash mode always counts at closing; opening the drawer is the shop\'s choice', () => {
+    const pm = M.createMaster('paymentModes', {
+      name: 'Cash 2', type: 'cash', opensCashDrawer: false, countsInCashClosing: false,
+      requiresRef: true, merchantName: 'X',
+    }, admin) as PM
+    expect(pm).toMatchObject({ opensCashDrawer: false, countsInCashClosing: true, requiresRef: false, merchantName: null })
+    expect((M.updateMaster('paymentModes', pm.id, { opensCashDrawer: true }, admin) as PM).opensCashDrawer).toBe(true)
+  })
+
+  it('nothing but cash counts as cash; a card may still open the drawer', () => {
+    const pm = M.createMaster('paymentModes', {
+      name: 'Card 3', type: 'card', opensCashDrawer: true, countsInCashClosing: true,
+    }, admin) as PM
+    expect(pm).toMatchObject({ opensCashDrawer: true, countsInCashClosing: false })
+  })
+
+  it('changing the type on edit follows, and an edit without a type keeps the rule', () => {
+    const pm = M.createMaster('paymentModes', { name: 'Wallet 1', type: 'wallet' }, admin) as PM
+    expect((M.updateMaster('paymentModes', pm.id, { type: 'cash' }, admin) as PM).countsInCashClosing).toBe(true)
+    // Only the name changes: still cash, still counted.
+    expect((M.updateMaster('paymentModes', pm.id, { name: 'Petty cash', countsInCashClosing: false }, admin) as PM)
+      .countsInCashClosing).toBe(true)
+  })
+})
+
 describe('bulk tables', () => {
   it('lays out a numbered run in one go', () => {
     const areas = M.listMaster('areas') as { id: string; name: string }[]

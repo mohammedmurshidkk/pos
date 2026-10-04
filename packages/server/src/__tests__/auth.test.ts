@@ -95,6 +95,27 @@ describe('setting a PIN', () => {
   })
 })
 
+describe('re-checking the PIN before an admin screen', () => {
+  it('accepts the right PIN and audits it as an unlock, not a sign-in', () => {
+    const fatima = emp('Fatima')
+    expect(A.confirmPin(fatima.id, '1234', 'setup')).toEqual({ ok: true })
+    const row = db.select().from(s.auditLog).all().filter((l) => l.action === 'auth.unlock').at(-1)!
+    expect(row.employeeId).toBe(fatima.id)
+    expect(row.detailJson).toContain('setup')
+    expect(row.detailJson).not.toContain('1234')
+  })
+
+  it('rejects a wrong PIN and a waiter', () => {
+    expect(() => A.confirmPin(emp('Fatima').id, '0000', 'setup')).toThrow(/wrong pin/i)
+    expect(() => A.confirmPin(emp('Rahul').id, '9876', 'setup')).toThrow(/only admins/i)
+  })
+
+  it('shares the sign-in lockout, so it is no back door for guessing', () => {
+    // Salim was locked out by the sign-in tests above.
+    expect(() => A.confirmPin(emp('Salim').id, '4321', 'setup')).toThrow(/too many wrong pins/i)
+  })
+})
+
 describe('changing your own PIN', () => {
   it('needs the current PIN, then the new one works', () => {
     const fatima = emp('Fatima')

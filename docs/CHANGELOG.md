@@ -35,3 +35,16 @@ Newest first. The docs keep the old text with a dated **Update** block under it
 | Android | `app.config.js` (reads brand.json): name, package `com.zentivo.pos`, launcher + adaptive + themed icon, splash (`expo-splash-screen` added) | `packages/mobile/app.config.js`, `assets/` |
 | Web | Tab title and `theme-color` from brand.json, favicon, small brand mark in the sidebar, sign-in and first-time setup | `packages/admin/index.html`, `vite.config.ts`, `components/BrandMark.tsx` |
 | Licence tools | Key folder `~/.zentivo-pos/`; a key still in `~/.almanzil-pos/` is found there | `tools/licence.mjs`, `licence-generator.html` |
+| Navigation | **Sidebar removed; 64px top bar**: Floor · Billing · + New order, printer pill, **More** sheet (Daily / Insights / Admin tiles), **Name ▾** menu (Change PIN, full screen, Sign out with confirm). Licence warning is a slim strip | `admin/src/components/TopBar.tsx`, `nav.ts`, `Shell.tsx` |
+| Navigation | Home is **Floor**: index route and every sign-in land there. Cancelling a new order goes back where it started | `admin/src/main.tsx`, `screens/Login.tsx`, `OrderEntry.tsx` |
+| Admin area | Setup, Settings, Devices, Licence ask for the **PIN again**; new `POST /api/auth/confirm` (shared lockout, audited `auth.unlock`) | `admin/src/components/AdminGate.tsx`, `server/src/services/auth.ts`, `index.ts` |
+| Windows | App opens in **kiosk mode** (taskbar hidden). Exit full screen from the Name menu (asks for PIN) or the tray; `POS_KIOSK=0` starts windowed. New preload bridge `window.desktop` | `desktop/src/main.ts`, `preload.ts`, `package.json` |
+| Superadmin | Touch way in: **hold the brand mark on sign-in for 5 s** | `admin/src/screens/Login.tsx`, `components/SuperadminDoor.tsx` |
+| Tests | Server tests 257 → 260 (PIN re-check) | `server/src/__tests__/auth.test.ts` |
+| Setup | Side menu, title, buttons and column headings stay put; only the table scrolls | `admin/src/screens/Masters.tsx` |
+| Setup | **"Order" → "Display order"** with a help line in the form; lists shown in display order (items by category, tables by area) | `admin/src/masters/config.ts`, `Masters.tsx` |
+| Payment modes | **Type decides cash handling**: cash opens the drawer and counts at closing, nothing else counts as cash; "Counts as cash" switch removed; cash form hides merchant/terminal/ref/drawer | `server/src/services/masters.ts` (`normalisePaymentMode`), `admin/src/masters/config.ts` |
+| Setup | Bulk add tables modal no longer scrolls sideways | `admin/src/screens/Masters.tsx` |
+| Tests | Server tests 260 → 263 (payment mode type rule) | `server/src/__tests__/masters.test.ts` |
+| Payment modes | **Opens drawer** is a switch on every type again, cash included (ticked when Cash is picked, no longer forced); counts-as-cash still follows the type | `server/src/services/masters.ts`, `admin/src/masters/config.ts`, `Masters.tsx` |
+| Counter ordering | Waiter dropdown replaced by a **Who is serving?** tile picker on Send to kitchen / Save without KOT; one tap sends; signed-in person first and highlighted; Add items skips it | `admin/src/screens/OrderEntry.tsx` (`WaiterPicker`) |

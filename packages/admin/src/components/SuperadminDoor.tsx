@@ -25,6 +25,13 @@ import { Banner, Button, Field, Modal, inputStyle } from './ui'
  */
 const SHORTCUT = { code: 'KeyA', ctrl: true, alt: true, shift: true }
 
+/**
+ * The touch way in: holding the brand mark on the sign-in screen for five
+ * seconds fires this event (see `HiddenDoor` in Login.tsx). A touch till may
+ * have no keyboard at all, and this door is for when nobody can sign in.
+ */
+export const OPEN_SUPERADMIN = 'pos:open-superadmin'
+
 export function SuperadminDoor() {
   const [asking, setAsking] = useState(false)
   const [open, setOpen] = useState(false)
@@ -65,8 +72,18 @@ export function SuperadminDoor() {
         setAsking((was) => (open ? false : !was))
       }
     }
+    const onHold = () => {
+      if (open) return
+      setError(null)
+      setPassword('')
+      setAsking(true)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(OPEN_SUPERADMIN, onHold)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(OPEN_SUPERADMIN, onHold)
+    }
   }, [open])
 
   const submit = async () => {

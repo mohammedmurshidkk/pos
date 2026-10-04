@@ -190,6 +190,9 @@ export const api = {
     post<{ id: string; name: string; role: 'admin' | 'waiter'; canDiscount: boolean; canSaveWithoutKot: boolean }>(
       '/api/auth/login', { employeeId, pin },
     ),
+  /** The signed-in admin's PIN again, before an admin screen or leaving kiosk. */
+  confirmPin: (employeeId: string, pin: string, area: string) =>
+    post<{ ok: true }>('/api/auth/confirm', { employeeId, pin, area }),
   changePin: (employeeId: string, currentPin: string, newPin: string) =>
     post<{ ok: true }>('/api/auth/change-pin', { employeeId, currentPin, newPin }),
 

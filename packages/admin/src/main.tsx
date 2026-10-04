@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider, createHashRouter, Navigate } from 'react-router-dom'
 import './theme/tokens.css'
 import { Shell } from './components/Shell'
+import { AdminGate } from './components/AdminGate'
 import { SuperadminDoor } from './components/SuperadminDoor'
 import { Billing } from './screens/Billing'
 import { Bills } from './screens/Bills'
@@ -24,7 +25,8 @@ const router = createHashRouter([
     path: '/',
     element: <Shell />,
     children: [
-      { index: true, element: <Navigate to="/billing" replace /> },
+      // The floor is home — see Login, which also lands there after every sign-in.
+      { index: true, element: <Navigate to="/floor" replace /> },
       { path: 'billing', element: <Billing /> },
       { path: 'floor', element: <Floor /> },
       { path: 'order/new', element: <OrderEntry /> },
@@ -33,10 +35,10 @@ const router = createHashRouter([
       { path: 'expenses', element: <Expenses /> },
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'reports', element: <Reports /> },
-      { path: 'masters', element: <Masters /> },
-      { path: 'settings', element: <Settings /> },
-      { path: 'devices', element: <Devices /> },
-      { path: 'licence', element: <Licence /> },
+      { path: 'masters', element: <AdminGate area="setup"><Masters /></AdminGate> },
+      { path: 'settings', element: <AdminGate area="settings"><Settings /></AdminGate> },
+      { path: 'devices', element: <AdminGate area="devices"><Devices /></AdminGate> },
+      { path: 'licence', element: <AdminGate area="licence"><Licence /></AdminGate> },
       { path: 'shift', element: <Shift /> },
     ],
   },

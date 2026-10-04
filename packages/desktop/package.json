@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
-    "build:main": "esbuild src/main.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:better-sqlite3 --external:pino-pretty",
+    "build:main": "esbuild src/main.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:better-sqlite3 --external:pino-pretty && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs --external:electron",
     "build:ui": "pnpm --filter @pos/admin build",
     "build": "pnpm build:ui && pnpm build:main && node scripts/copy-assets.mjs",
     "start": "pnpm native:electron && pnpm build && electron .",

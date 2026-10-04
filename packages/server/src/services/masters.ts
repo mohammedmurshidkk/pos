@@ -194,6 +194,23 @@ function parse(e: Entry, body: unknown, partial: boolean) {
   return result.data as Record<string, unknown>
 }
 
+/**
+ * A payment mode's type decides what counts as cash, so the two can never
+ * disagree. Before, "Cash" with type Cash still needed "Counts as cash" ticked
+ * by hand — miss it and the Z-report's expected cash was wrong every night.
+ * Now: cash counts at closing and nothing else does. Opening the drawer stays
+ * the shop's choice for every type, cash included.
+ */
+function normalisePaymentMode(data: Record<string, unknown>, before?: Record<string, unknown>) {
+  const type = data.type ?? before?.type
+  if (type === undefined) return
+  if (type === 'cash') {
+    Object.assign(data, { countsInCashClosing: true, requiresRef: false, merchantName: null, terminalId: null })
+  } else {
+    data.countsInCashClosing = false
+  }
+}
+
 function assertNameFree(e: Entry, name: unknown, excludeId?: string) {
   if (!e.uniqueName || typeof name !== 'string') return
   const rows = db.select().from(e.table).all() as Row[]
@@ -212,6 +229,7 @@ export function createMaster(name: string, body: unknown, employeeId: string) {
   const data = parse(e, body, false)
   assertNameFree(e, data.name)
   hashPinField(data)
+  if (name === 'paymentModes') normalisePaymentMode(data)
 
   const id = newId()
   db.insert(e.table).values({ id, ...data }).run()
@@ -262,6 +280,7 @@ export function updateMaster(name: string, id: string, body: unknown, employeeId
   const data = parse(e, body, true)
   assertNameFree(e, data.name, id)
   hashPinField(data)
+  if (name === 'paymentModes') normalisePaymentMode(data, before as Record<string, unknown>)
 
   // Turning a record off is what the guards protect; turning one on is safe.
   if (data.active === false && e.guard) {

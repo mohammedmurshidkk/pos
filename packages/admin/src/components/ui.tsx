@@ -59,7 +59,7 @@ export function Banner({ tone, children }: { tone: keyof typeof toneColor; child
 
 export function Modal({
   title, subtitle, onClose, children, width = 640,
-}: { title: string; subtitle?: string; onClose: () => void; children: ReactNode; width?: number }) {
+}: { title?: string; subtitle?: string; onClose: () => void; children: ReactNode; width?: number }) {
   return (
     <div
       onClick={onClose}
@@ -77,10 +77,12 @@ export function Modal({
           display: 'flex', flexDirection: 'column', gap: 16,
         }}
       >
-        <div>
-          <h1>{title}</h1>
-          {subtitle ? <div className="muted">{subtitle}</div> : null}
-        </div>
+        {title ? (
+          <div>
+            <h1>{title}</h1>
+            {subtitle ? <div className="muted">{subtitle}</div> : null}
+          </div>
+        ) : null}
         {children}
       </div>
     </div>
@@ -109,4 +111,11 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
       {hint ? <div style={{ marginTop: 4 }}>{hint}</div> : null}
     </div>
   )
+}
+
+/** Two letters: initials for a full name, the first two for a single name. */
+export const initials = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  const source = parts.length > 1 ? parts.map((p) => p[0] ?? '').join('') : (parts[0] ?? '')
+  return source.slice(0, 2).toUpperCase()
 }

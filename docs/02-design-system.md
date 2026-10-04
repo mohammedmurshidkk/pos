@@ -29,6 +29,12 @@ Design to the **smallest** of each, not the biggest.
 
 ⚠️ If a screen only works at 1920×1080, it does not work.
 
+> **Update 2026-10-04 (5):** the admin PC is treated as a **touch till with no
+> mouse or keyboard**. The Electron window opens in **kiosk mode** (whole screen,
+> no title bar, Windows taskbar hidden). The 200px sidebar is gone; navigation is
+> one **64px top bar**, so screens get the full 1366px (and still work at 1024).
+> See §13.
+
 ---
 
 ## 3. Color tokens
@@ -189,6 +195,12 @@ Green = reachable, red = unreachable, amber = jobs pending. Clicking opens the p
 
 Your support colleague will live on this — treat it as a P0 feature, not a nice-to-have.
 
+> **Update 2026-10-04 (5):** in the top bar it is now **one pill**, not a dot per
+> printer: `● Printers OK` (green), `● 3 printing` (amber), `● 2 failed` or
+> `● 1 printer offline` (red). Tapping it still opens the print queue, which has
+> the per-printer and per-job detail. A cashier needs "fine" or "look here"; the
+> per-printer list grew too wide for the bar.
+
 ---
 
 ## 9. Iconography
@@ -228,3 +240,28 @@ The button is hidden entirely when the picked employee lacks `can_save_without_k
 - Currency and tax words come from settings: `VAT` / `GST`, `TRN` / `GSTIN`.
 - English only in MVP. Keep all strings in one file so Arabic can be added later without a rewrite.
 - The picker asks `Who is taking this order?` — not `Select employee`. Speak the way the floor speaks.
+
+---
+
+## 13. Top bar navigation — new 2026-10-04
+
+Replaces the left sidebar on the admin PC. Built for a touch till.
+
+```
+Business · [ Floor ][ Billing ]  [ + New order ] ······ ● Printers · ▦ More · (FA) Name ▾
+```
+
+- **64px high; every control 48px.** No hover-only affordances, no `title` tooltips.
+- **Quick tabs:** Floor and Billing (segmented) plus **+ New order** (primary).
+  These are used every minute of service. Floor is home: every sign-in lands there.
+- **More** opens a sheet of large tiles (88px) in three groups: *Daily* (Bills,
+  Shift, Expenses), *Insights* (Dashboard, Reports), *Admin* (Setup, Settings,
+  Devices, Licence). On a More screen the button shows that screen's name.
+- **Admin** tiles show only to `role = admin` and ask for the **PIN again** on the
+  way in; moving between admin screens does not ask twice, leaving them does.
+- **Name ▾** holds Change PIN, Exit full screen / Full screen (desktop app only)
+  and Sign out, which asks to confirm. None of them sit loose in the bar, where a
+  stray tap during a rush would sign the counter out.
+- **Licence warning** is a slim strip under the bar, not a banner inside the screen.
+- Screen list lives in `admin/src/components/nav.ts`; the bar is `TopBar.tsx`.
+

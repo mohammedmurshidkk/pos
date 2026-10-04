@@ -14,7 +14,7 @@ import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
 import { addItems, createOrder, getOrder, listClosedOrders, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
 import { findCustomerByPhone, searchCustomers } from './services/customers.js'
-import { changeOwnPin, login, setPin } from './services/auth.js'
+import { changeOwnPin, confirmPin, login, setPin } from './services/auth.js'
 import {
   authenticateDevice, cancelPairingCode, createPairingCode, hubAddresses, listDevices, pairDevice, revokeDevice,
 } from './services/devices.js'
@@ -385,6 +385,12 @@ app.post('/api/expenses', async (req) => {
 app.post('/api/auth/login', async (req) => {
   const { employeeId, pin } = req.body as { employeeId: string; pin: string }
   return login(employeeId, pin)
+})
+
+/** Re-check before an admin screen opens; same lockout as sign-in. */
+app.post('/api/auth/confirm', async (req) => {
+  const { employeeId, pin, area } = (req.body ?? {}) as { employeeId: string; pin: string; area?: string }
+  return confirmPin(employeeId, pin ?? '', area ?? 'admin')
 })
 
 app.post('/api/auth/pin', async (req) => {

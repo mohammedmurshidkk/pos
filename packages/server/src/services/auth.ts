@@ -41,7 +41,11 @@ const attempts = new Map<string, { count: number; until: number }>()
 const MAX_ATTEMPTS = 5
 const LOCKOUT_MS = 30_000
 
-export function login(employeeId: string, pin: string) {
+/**
+ * The PIN check shared by sign-in and the admin-area re-check, so both count
+ * towards the same lockout — a re-check prompt is no back door for guessing.
+ */
+function checkPin(employeeId: string, pin: string) {
   const employee = db.select().from(s.employees).where(eq(s.employees.id, employeeId)).get()
   if (!employee || !employee.active) throw notFound('employee')
 
@@ -72,6 +76,11 @@ export function login(employeeId: string, pin: string) {
   }
 
   attempts.delete(employeeId)
+  return employee
+}
+
+export function login(employeeId: string, pin: string) {
+  const employee = checkPin(employeeId, pin)
   audit(employee.id, 'auth.login', 'employee', employee.id, null)
   return {
     id: employee.id,
@@ -81,6 +90,17 @@ export function login(employeeId: string, pin: string) {
     maxDiscountPercent: employee.maxDiscountPercent,
     canSaveWithoutKot: employee.canSaveWithoutKot,
   }
+}
+
+/**
+ * The signed-in admin typing their PIN again to open an admin screen (Setup,
+ * Settings, Devices, Licence) or to leave kiosk mode. Audited apart from
+ * sign-in so the log shows who went into the back office and when.
+ */
+export function confirmPin(employeeId: string, pin: string, area: string) {
+  const employee = checkPin(employeeId, pin)
+  audit(employee.id, 'auth.unlock', 'employee', employee.id, { area: area.slice(0, 40) })
+  return { ok: true as const }
 }
 
 export function setPin(employeeId: string, pin: string, byEmployeeId: string) {

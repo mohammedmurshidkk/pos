@@ -14,6 +14,25 @@ type Lists = Record<string, Row[]>
  * stamp or the referential guard; this renders from a field spec, so adding a
  * master is a config entry.
  */
+/**
+ * A list with a Display order column is shown in that order — the way the
+ * tablet and counter show it. Items and tables go by their category's or
+ * area's position first, so the list reads like the menu and the floor.
+ */
+function inDisplayOrder(spec: MasterSpec, rows: Row[], lists: Lists): Row[] {
+  if (!spec.fields.some((f) => f.key === 'sort')) return rows
+  const parentField = spec.fields.find((f) => f.kind === 'select' && f.from && lists[f.from]?.some((r) => 'sort' in r))
+  const parentPos = new Map<string, number>()
+  if (parentField?.kind === 'select' && parentField.from) {
+    for (const p of lists[parentField.from] ?? []) parentPos.set(p.id, Number(p.sort ?? 0))
+  }
+  const num = (v: unknown) => Number(v ?? 0)
+  return [...rows].sort((a, b) =>
+    (parentField ? num(parentPos.get(String(a[parentField.key]))) - num(parentPos.get(String(b[parentField.key]))) : 0)
+    || num(a.sort) - num(b.sort)
+    || String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { numeric: true }))
+}
+
 export function Masters() {
   const { operator, data, load } = useStore()
   const [entity, setEntity] = useState('printers')
@@ -33,10 +52,10 @@ export function Masters() {
         api.masters<Row>(target.entity),
         ...(target.needs ?? []).map((n) => api.masters<Row>(n)),
       ])
-      setRows(main)
       const next: Lists = {}
       ;(target.needs ?? []).forEach((n, i) => { next[n] = refs[i] ?? [] })
       setLists(next)
+      setRows(inDisplayOrder(target, main, next))
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the hub')
@@ -85,8 +104,13 @@ export function Masters() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: 20, minHeight: 0 }}>
-      <nav style={{ display: 'grid', gap: 2, alignContent: 'start' }}>
+    // Fills the screen and never scrolls itself: the side menu, title and buttons
+    // stay put while only the table scrolls, under its own pinned column headings.
+    <div style={{
+      display: 'grid', gridTemplateColumns: '190px 1fr', gridTemplateRows: 'minmax(0, 1fr)',
+      gap: 20, height: '100%',
+    }}>
+      <nav style={{ display: 'grid', gap: 2, alignContent: 'start', minHeight: 0, overflowY: 'auto' }}>
         {MASTERS.map((m) => (
           <button
             key={m.entity}
@@ -103,8 +127,8 @@ export function Masters() {
         ))}
       </nav>
 
-      <section style={{ display: 'grid', gap: 16, alignContent: 'start', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexShrink: 0 }}>
           <div style={{ flex: 1 }}>
             <h1>{spec.title}</h1>
             {spec.hint ? <div className="muted" style={{ marginTop: 4 }}>{spec.hint}</div> : null}
@@ -126,7 +150,8 @@ export function Masters() {
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-        <div className="card" style={{ overflow: 'auto' }}>
+        {/* Shrinks to its rows when short; scrolls inside when longer than the screen. */}
+        <div className="card" style={{ flex: '0 1 auto', minHeight: 0, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -276,7 +301,9 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
   }, [spec, row, decimals, lists])
 
   const [values, setValues] = useState(initial)
-  const set = (key: string, v: unknown) => setValues((prev) => ({ ...prev, [key]: v }))
+  const set = (key: string, v: unknown) => setValues((prev) => ({
+    ...prev, [key]: v, ...(spec.fields.find((f) => f.key === key)?.alsoSets?.(v) ?? {}),
+  }))
 
   const submit = () => {
     const out: Record<string, unknown> = {}
@@ -299,7 +326,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
       width={560}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {spec.fields.map((f) => (
+        {spec.fields.filter((f) => !f.showIf || f.showIf(values)).map((f) => (
           <FieldWrap key={f.key} label={f.label}>
             {f.kind === 'bool' ? (
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', height: 'var(--control-h)' }}>
@@ -329,6 +356,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
                 onChange={(e) => set(f.key, e.target.value)}
               />
             )}
+            {f.help ? <span className="faint" style={{ fontSize: 13 }}>{f.help}</span> : null}
           </FieldWrap>
         ))}
         {withGroups ? (
@@ -384,22 +412,24 @@ function BulkTables({ areas, onClose, onDone, onError }: {
   return (
     <Modal title="Bulk add tables" subtitle="Lay out a numbered run — A1 to A12." onClose={onClose} width={520}>
       <FieldWrap label="Area">
-        <select style={inputStyle} value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+        <select style={{ ...inputStyle, width: '100%' }} value={areaId} onChange={(e) => setAreaId(e.target.value)}>
           {areas.map((a) => <option key={a.id} value={a.id}>{String(a.name)}</option>)}
         </select>
       </FieldWrap>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+      {/* minmax(0, …): a bare 1fr will not shrink below an input's built-in
+          width, so four inputs pushed the modal into a sideways scroll. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
         <FieldWrap label="Prefix">
-          <input style={inputStyle} value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+          <input style={{ ...inputStyle, width: '100%' }} value={prefix} onChange={(e) => setPrefix(e.target.value)} />
         </FieldWrap>
         <FieldWrap label="From">
-          <input style={{ ...inputStyle, textAlign: 'right' }} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input style={{ ...inputStyle, width: '100%', textAlign: 'right' }} inputMode="numeric" value={from} onChange={(e) => setFrom(e.target.value)} />
         </FieldWrap>
         <FieldWrap label="To">
-          <input style={{ ...inputStyle, textAlign: 'right' }} value={to} onChange={(e) => setTo(e.target.value)} />
+          <input style={{ ...inputStyle, width: '100%', textAlign: 'right' }} inputMode="numeric" value={to} onChange={(e) => setTo(e.target.value)} />
         </FieldWrap>
         <FieldWrap label="Seats">
-          <input style={{ ...inputStyle, textAlign: 'right' }} value={seats} onChange={(e) => setSeats(e.target.value)} />
+          <input style={{ ...inputStyle, width: '100%', textAlign: 'right' }} inputMode="numeric" value={seats} onChange={(e) => setSeats(e.target.value)} />
         </FieldWrap>
       </div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
@@ -423,7 +453,11 @@ function BulkTables({ areas, onClose, onDone, onError }: {
 const thStyle = (f?: Field): React.CSSProperties => ({
   textAlign: 'left', fontSize: 13, fontWeight: 500, letterSpacing: '0.04em',
   textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 12px',
-  borderBottom: '1px solid var(--border)', width: f?.width, whiteSpace: 'nowrap',
+  width: f?.width, whiteSpace: 'nowrap',
+  // Pinned while the rows scroll. A collapsed border scrolls away with the rows,
+  // so the rule under the headings is an inset shadow instead.
+  position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)',
+  boxShadow: 'inset 0 -1px 0 var(--border)',
 })
 const tdStyle = (f: Field): React.CSSProperties => ({
   padding: '8px 12px', width: f.width,

@@ -18,6 +18,11 @@ Admin picks their tile and enters a 4-digit PIN.
 - Session lives in `sessionStorage`: reloading the window does not sign the cashier out, closing the app does.
 - **States:** choosing · entering PIN · wrong PIN · locked out · no PIN set
 
+> **Update 2026-10-04 (5):** after sign-in the counter opens on **Floor** (was
+> Billing). The keypad is the shared `PinPad` component, also used by the admin
+> re-check. Holding the brand mark at the bottom for **5 seconds** opens the
+> Superadmin password prompt (see A24).
+
 ## A01b · Open the counter — P0 · **built**
 Shown straight after sign-in when no shift is open on this counter.
 - Counter selector (hidden when there is only one), opening float with quick amounts
@@ -89,6 +94,16 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 > **Update 2026-10-04:** - **Items → "Asks for (modifier groups)"** built: tick the groups an item asks for on the tablet and counter (`PUT /api/masters/items/:id/modifier-groups`, replaces the whole set, audited). Before this only the demo seed could link a group to an item.
 > - **Then hidden the same day:** the **Modifier groups** and **Modifiers** entries and the item form's "Asks for" section are **commented out** in `admin/src/masters/config.ts` and `admin/src/screens/Masters.tsx`. Uncomment to bring them back. The API, tablet modifier sheet and counter modifier modal are unchanged. Menu CSV import never touched modifiers and still works.
 > - **Setup → Printers** now also has **Test print** per row and **Retry failed prints** in the header (moved from A10, below).
+
+> **Update 2026-10-04 (6):**
+> - **"Order" is now "Display order"**, with a line under it in the form saying where it shows ("Where it sits inside its category on the tablet and the counter. 1 comes first."). It is the position on the tablet menu, the counter's New order, the floor and the area tabs; nothing else uses it. Lists with it are shown in that order (items by category first, tables by area first), so the list reads like the menu.
+> - **Payment modes: the Type decides the cash handling.** Cash always opens the drawer and is counted at shift close; no other type counts as cash. The **Counts as cash** switch is gone (the hub sets it from the type), and a Cash mode's form shows only Name, Type and Active. Card and other types keep Merchant, Terminal ID, Needs ref and Opens drawer. Before, "Cash" still needed both switches ticked by hand, and missing one made the Z-report's expected cash wrong.
+> - **Bulk add tables** no longer scrolls sideways (four inputs in `1fr` columns would not shrink).
+
+> **Update 2026-10-04 (7):** **Opens drawer is back on the Cash form**, as a switch the shop can turn off (e.g. a shop that does not want the drawer popping on every cash sale). Picking type Cash ticks it; it is no longer forced. "Counts as cash" still follows the type.
+> - Sticky layout: the side menu, title, buttons and the table's column headings stay put; only the rows scroll.
+
+> **Update 2026-10-04 (8):** **Counter New order: the waiter is picked when sending, not from a dropdown.** The "Waiter (gets the sales credit)" select is gone from the order details. **Send to kitchen** (or Save without KOT) opens **"Who is serving this order?"** with large name tiles; one tap sends. The signed-in person is listed first and highlighted ("You · signed in"), then waiters, then other admins. Unlike the tablet's picker this one does pre-highlight: the counter has a real sign-in and a walk-in is usually served by whoever is at the till. **Add items** to an open order skips the picker (the order keeps its waiter).
 
 ## A10 · Printers — P0 · **support-critical**
 - List: name, IP:port, width, live status dot, pending job count
@@ -209,6 +224,22 @@ The way back in when every admin PIN has been forgotten.
 - Marked **Counter PC only** on screen; tablets are refused by the hub regardless of password
 - Refuses to disable the last admin who can still sign in
 - **States:** password prompt · wrong password · locked out · list · add · reset PIN · change password · session ended
+
+> **Update 2026-10-04 (5):** a touch till may have no keyboard, so there is a
+> second hidden way in: **press and hold the brand mark on the sign-in screen for
+> 5 seconds**. Still no label. The shortcut keeps working. Typing the password
+> on a keyboard-less till relies on the Windows touch keyboard.
+
+## A25 · Admin area PIN re-check — new 2026-10-04
+Setup, Settings, Devices and Licence ask the signed-in admin for their PIN again.
+- Full-screen keypad card ("Admin area"), Cancel goes back
+- `POST /api/auth/confirm` — same lockout as sign-in (5 wrong → 30 s), audited as
+  `auth.unlock` with the area; the PIN never enters the log
+- Unlock is memory-only; moving between admin screens keeps it, leaving the admin
+  area or signing out drops it
+- Also asked before **Exit full screen**, which brings back the Windows taskbar
+- Admins only; a non-admin sees "Admins only" (today every counter login is an admin)
+- **States:** keypad · checking · wrong PIN · locked out · unlocked
 
 ## W01 · Pairing — P0 · **built**
 Hub IP + port, a **6-digit pairing code** from the counter PC, and a name for the tablet.
