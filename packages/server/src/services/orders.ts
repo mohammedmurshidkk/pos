@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, ne, or } from 'drizzle-orm'
 import { calculate, kotKindForSeq, newId, nextKotSeq, routeToKitchens, schema, type CalcLine } from '@pos/shared'
 import { db, raw } from '../db.js'
 import { audit } from '../audit.js'
@@ -7,6 +7,7 @@ import { printQueue } from '../queue.js'
 import type { KotPayload } from '../templates.js'
 import { requireEmployee } from './employees.js'
 import { assertLicensed } from './licence.js'
+import { normalizePhone, saveCustomer } from './customers.js'
 
 const s = schema
 
@@ -44,6 +45,7 @@ export function createOrder(input: {
   bayNo?: string | null
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
+  customerName?: string | null
   createdBy: string
 }) {
   requireEmployee(input.createdBy)
@@ -51,6 +53,13 @@ export function createOrder(input: {
   // order that already exists skip this, so an expiry never strands a table.
   assertLicensed('new order')
   const id = newId()
+  // A phone number makes (or updates) the customer, unique by phone. Takeaway
+  // used to carry its name only as the ticket label, so fall back to that.
+  const customerName = input.customerName?.trim() || (input.type === 'dine_in' ? null : input.ticketLabel?.trim() || null)
+  const phone = normalizePhone(input.phoneSnapshot) || null
+  const customerId = saveCustomer({
+    phone, name: customerName, address: input.type === 'delivery' ? input.addressSnapshot : null,
+  })
   db.insert(s.orders).values({
     id,
     orderNo: nextOrderNo(),
@@ -60,8 +69,10 @@ export function createOrder(input: {
     ticketLabel: input.ticketLabel ?? null,
     vehicleNo: input.vehicleNo ?? null,
     bayNo: input.bayNo ?? null,
-    phoneSnapshot: input.phoneSnapshot ?? null,
+    phoneSnapshot: phone,
     addressSnapshot: input.addressSnapshot ?? null,
+    customerName,
+    customerId,
     // waiterId is set by whoever sends the first KOT, not at creation.
     createdBy: input.createdBy,
     openedAt: now(),
@@ -315,6 +326,53 @@ export function listOpenOrders() {
   }))
 }
 
+/**
+ * Settled and cancelled orders in a range, newest first, WITH lines and
+ * payments — what the counter needs to find a bill again and reprint it.
+ *
+ * A settled order is placed by when it was paid, a cancelled one by when it
+ * was opened (it was never paid). Search happens on the client: one business
+ * day is a few hundred orders at most.
+ */
+export function listClosedOrders(range: { from: Date; to: Date }) {
+  const orders = db
+    .select()
+    .from(s.orders)
+    .where(or(
+      and(eq(s.orders.status, 'settled'), gte(s.orders.settledAt, range.from), lt(s.orders.settledAt, range.to)),
+      and(eq(s.orders.status, 'void'), gte(s.orders.openedAt, range.from), lt(s.orders.openedAt, range.to)),
+    ))
+    .orderBy(desc(s.orders.settledAt), desc(s.orders.openedAt))
+    .all()
+  if (orders.length === 0) return []
+  const ids = orders.map((o) => o.id)
+
+  const lines = db.select().from(s.orderItems).where(inArray(s.orderItems.orderId, ids)).all()
+  const payments = db
+    .select({
+      orderId: s.payments.orderId, amount: s.payments.amount, refNo: s.payments.refNo,
+      mode: s.paymentModes.name,
+    })
+    .from(s.payments)
+    .innerJoin(s.paymentModes, eq(s.payments.paymentModeId, s.paymentModes.id))
+    .where(inArray(s.payments.orderId, ids))
+    .all()
+
+  const group = <T extends { orderId: string }>(rows: T[]) => {
+    const m = new Map<string, T[]>()
+    for (const r of rows) m.set(r.orderId, [...(m.get(r.orderId) ?? []), r])
+    return m
+  }
+  const linesBy = group(lines)
+  const paymentsBy = group(payments)
+
+  return orders.map((o) => ({
+    ...o,
+    lines: (linesBy.get(o.id) ?? []).map((l) => ({ ...l, modifiers: JSON.parse(l.modifiersJson) })),
+    payments: (paymentsBy.get(o.id) ?? []).map(({ orderId: _o, ...p }) => p),
+  }))
+}
+
 /** Admin reassigns service credit. `createdBy` is never touched. */
 export function setWaiter(orderId: string, waiterId: string, employeeId: string) {
   requireEmployee(employeeId)
@@ -378,6 +436,7 @@ export function submitOrder(input: {
   bayNo?: string | null
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
+  customerName?: string | null
   lines: NewLine[]
   employeeId: string
   suppressKot?: boolean
@@ -401,6 +460,7 @@ export function submitOrder(input: {
       bayNo: input.bayNo ?? null,
       phoneSnapshot: input.phoneSnapshot ?? null,
       addressSnapshot: input.addressSnapshot ?? null,
+      customerName: input.customerName ?? null,
       createdBy: input.employeeId,
     })!.id
 

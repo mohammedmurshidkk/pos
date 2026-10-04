@@ -65,6 +65,25 @@ describe('customer bill', () => {
     expect(out).not.toMatch(/not a tax invoice/i)
   })
 
+  it('leaves the kitchen note off the bill but keeps modifiers', () => {
+    const out = text(renderBill(bill({
+      lines: [{ qty: 1, name: 'Tea', amount: 1050, modifiers: ['Less sugar'], note: 'No ice please' }],
+    }), 80))
+    expect(out).toContain('Less sugar')
+    expect(out).not.toContain('No ice please')
+  })
+
+  it('prints the customer on the bill, and the delivery address', () => {
+    const out = text(renderBill(bill({
+      orderType: 'delivery', tableLabel: '0559998888', customerName: 'Sara',
+      customerPhone: '0559998888', deliveryAddress: 'Villa 12, Al Nahda',
+    }), 80))
+    expect(out).toMatch(/Customer\s+Sara/)
+    expect(out).toContain('Deliver to: Villa 12, Al Nahda')
+    // The phone is already the delivery label; it is not printed twice.
+    expect(out.match(/0559998888/g)).toHaveLength(1)
+  })
+
   it('opens the drawer only when asked', () => {
     expect(text(renderBill(bill(), 80))).not.toContain('\x1bp')
     expect(text(renderBill(bill({ openDrawer: true }), 80))).toContain('\x1bp\x00\x19\x78')

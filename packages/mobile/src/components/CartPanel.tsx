@@ -1,7 +1,7 @@
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import type { CartLine } from '../store/cart'
 import { cartLineTotal } from '../store/cart'
-import { color, space } from '../theme/tokens'
+import { color, space, touch } from '../theme/tokens'
 import { QtyStepper } from './QtyStepper'
 import { Text } from './Text'
 
@@ -9,6 +9,8 @@ interface Props {
   lines: CartLine[]
   money: (minor: number) => string
   onQty: (key: string, qty: number) => void
+  /** Opens the note editor for a line that is already in the cart. */
+  onNote?: (line: CartLine) => void
 }
 
 /**
@@ -16,7 +18,7 @@ interface Props {
  * on a landscape tablet and inside a bottom sheet on a phone, so the two never
  * drift apart.
  */
-export function CartPanel({ lines, money, onQty }: Props) {
+export function CartPanel({ lines, money, onQty, onNote }: Props) {
   if (lines.length === 0) {
     return <Text variant="body" faint style={styles.empty}>Tap an item to start.</Text>
   }
@@ -29,7 +31,14 @@ export function CartPanel({ lines, money, onQty }: Props) {
             <Text variant="money">{money(cartLineTotal(l))}</Text>
           </View>
           {l.note ? <Text variant="caption" muted>{l.note}</Text> : null}
-          <QtyStepper qty={l.qty} onChange={(q) => onQty(l.key, q)} />
+          <View style={styles.actions}>
+            <QtyStepper qty={l.qty} onChange={(q) => onQty(l.key, q)} />
+            {onNote ? (
+              <Pressable onPress={() => onNote(l)} style={styles.noteBtn} hitSlop={8}>
+                <Text variant="caption" style={{ color: color.primary }}>{l.note ? 'Edit note' : '+ Note'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ))}
     </ScrollView>
@@ -41,5 +50,7 @@ const styles = StyleSheet.create({
   line: { gap: space.sm, paddingBottom: space.md, borderBottomWidth: 1, borderBottomColor: color.border },
   top: { flexDirection: 'row', justifyContent: 'space-between', gap: space.sm },
   name: { flex: 1 },
+  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  noteBtn: { minHeight: touch.min, justifyContent: 'center', paddingHorizontal: space.sm },
   empty: { padding: space.lg },
 })

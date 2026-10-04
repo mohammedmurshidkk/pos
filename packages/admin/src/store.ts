@@ -5,6 +5,8 @@ import type { Bootstrap, Employee, Printer } from './api/types'
 interface State {
   data: Bootstrap | null
   printers: Printer[]
+  /** False until the first printer check answers: empty then means "not known yet", not "none". */
+  printersChecked: boolean
   /** Whoever is signed in at this counter — stamped on every action. */
   operator: Employee | null
   counterId: string | null
@@ -12,6 +14,12 @@ interface State {
 
   load: () => Promise<void>
   refreshPrinters: () => Promise<void>
+  /** Waiting and failed print jobs per printer, for the header and Dashboard. */
+  jobCounts: Record<string, { pending: number; failed: number }>
+  refreshJobs: () => Promise<void>
+  /** The print queue panel, opened from the header strip or the Dashboard. */
+  queueOpen: boolean
+  setQueueOpen: (open: boolean) => void
   signIn: (employee: Employee) => void
   signOut: () => void
   setCounter: (id: string) => void
@@ -34,6 +42,9 @@ const restoreOperator = (): Employee | null => {
 export const useStore = create<State>((set, get) => ({
   data: null,
   printers: [],
+  printersChecked: false,
+  jobCounts: {},
+  queueOpen: false,
   operator: restoreOperator(),
   counterId: null,
   error: null,
@@ -79,9 +90,16 @@ export const useStore = create<State>((set, get) => ({
     try {
       // Clearing the error here is what makes a stale banner disappear once the
       // hub is answering again — `load` only re-runs while `data` is null.
-      set({ printers: await api.printers(), error: null })
+      set({ printers: await api.printers(), printersChecked: true, error: null })
     } catch { /* header dots just go stale */ }
   },
+
+  refreshJobs: async () => {
+    try {
+      set({ jobCounts: (await api.printJobs()).counts })
+    } catch { /* the badge just goes stale */ }
+  },
+  setQueueOpen: (queueOpen) => set({ queueOpen }),
 
   /**
    * Kept in sessionStorage, not localStorage: reloading the window should not

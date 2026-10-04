@@ -1,7 +1,8 @@
 import { and, count, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
-import { backupTo, db, raw } from '../db.js'
+import { db, raw } from '../db.js'
+import { runBackup } from './backups.js'
 import { conflict, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { ZReportPayload } from '../templates.js'
@@ -264,16 +265,18 @@ export function closeShift(shiftId: string, countedCash: number, employeeId: str
   }).run()
   printQueue.kick(counter.printerId)
 
+  // Always back up now, to the Settings folder unless a caller names one. A
+  // failed backup must not undo a closed shift: the cashier is told instead.
   let backupPath: string | null = null
-  if (backupDir) {
-    const nameStamp = new Date().toISOString().replace(/[:.]/g, '-')
-    backupPath = `${backupDir}/pos-${nameStamp}.db`
-    backupTo(backupPath)
-    db.update(s.settings).set({ lastBackupAt: new Date() }).where(eq(s.settings.id, 'singleton')).run()
+  let backupError: string | null = null
+  try {
+    backupPath = runBackup('shift_close', backupDir ? { dir: backupDir } : {}).path
+  } catch (e) {
+    backupError = e instanceof Error ? e.message : String(e)
   }
 
   audit(employeeId, 'shift.close', 'shift', shiftId, {
-    counted: countedCash, expected: report.cash.expected, variance: report.cash.variance, backupPath,
+    counted: countedCash, expected: report.cash.expected, variance: report.cash.variance, backupPath, backupError,
   })
-  return { report: { ...report, counted: countedCash }, backupPath }
+  return { report: { ...report, counted: countedCash }, backupPath, backupError }
 }

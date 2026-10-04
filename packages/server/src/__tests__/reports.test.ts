@@ -191,6 +191,14 @@ describe('csv export', () => {
     expect(csv).toContain('"said ""ok"""')
   })
 
+  it('keeps columns that only later rows have (discounts and voids on one sheet)', () => {
+    const csv = R.toCsv([
+      { kind: 'discount', orderNo: 1, amount: 500 },
+      { kind: 'void', orderNo: 2, name: 'Tea', qty: 2, amount: 300 },
+    ], ['amount'], 2)
+    expect(csv).toBe('kind,orderNo,amount,name,qty\ndiscount,1,5.00,,\nvoid,2,3.00,Tea,2')
+  })
+
   it('returns empty output for no rows rather than a stray header', () => {
     expect(R.toCsv([])).toBe('')
   })

@@ -7,6 +7,7 @@ import { printQueue } from '../queue.js'
 import type { BillPayload } from '../templates.js'
 import { requireCounter } from './counters.js'
 import { requireEmployee } from './employees.js'
+import { attachCustomer } from './customers.js'
 import { recalculate } from './orders.js'
 import { openShiftIdFor } from './shifts.js'
 
@@ -87,6 +88,9 @@ function buildPayload(
     orderNo: order.orderNo,
     orderType: order.type,
     tableLabel,
+    customerName: order.customerName,
+    customerPhone: order.phoneSnapshot,
+    deliveryAddress: order.type === 'delivery' ? order.addressSnapshot : null,
     waiterName: waiter?.name ?? 'Counter',
     counterName: counter.name,
     at: stamp(),
@@ -216,7 +220,13 @@ export function paidSoFar(orderId: string): number {
  */
 export function settle(
   orderId: string,
-  input: { payments: { paymentModeId: string; amount: number; refNo?: string | null }[]; employeeId: string; counterId: string },
+  input: {
+    payments: { paymentModeId: string; amount: number; refNo?: string | null }[]
+    employeeId: string
+    counterId: string
+    /** Asked at the till. Saved as a customer, unique by phone, for CRM later. */
+    customer?: { name?: string | null; phone?: string | null } | null
+  },
 ) {
   requireEmployee(input.employeeId)
   requireCounter(input.counterId)
@@ -232,6 +242,9 @@ export function settle(
   if (!shiftId) {
     throw conflict('No shift is open on this counter. Open the counter before taking payment.')
   }
+
+  // Before the bill is built, so the name and phone print on it.
+  if (input.customer) attachCustomer(orderId, input.customer)
 
   recalculate(orderId)
   const current = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()!

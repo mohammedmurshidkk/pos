@@ -14,7 +14,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Licence Generator</title>
+<title>Zentivo POS — Licence Generator</title>
 <style>
   :root {
     --bg: #f6f7f9; --surface: #ffffff; --surface-alt: #f1f3f6; --border: #dde1e7; --border-strong: #c3c9d2;
@@ -69,14 +69,14 @@
 <body>
 <main>
   <div>
-    <h1>Licence generator</h1>
+    <h1>Zentivo POS · Licence generator</h1>
     <div class="muted">Vendor only. Your signing key is used inside this page and never leaves this computer.</div>
   </div>
 
   <section class="card">
     <div>
       <h2>1 · Signing key</h2>
-      <div class="muted small">Pick <code>licence-private.pem</code> (normally in <code>~/.almanzil-pos/</code>). It is read into memory only.</div>
+      <div class="muted small">Pick <code>licence-private.pem</code> (normally in <code>~/.zentivo-pos/</code>, or <code>~/.almanzil-pos/</code> on older setups). It is read into memory only.</div>
     </div>
     <div class="row">
       <label>Private key file
@@ -144,7 +144,7 @@
       <summary>No signing key yet? Create one</summary>
       <p class="muted small">
         Do this <strong>once</strong>. It downloads <code>licence-private.pem</code> — move it to
-        <code>~/.almanzil-pos/</code> and back it up somewhere safe; lose it and no installed shop can be renewed.
+        <code>~/.zentivo-pos/</code> and back it up somewhere safe; lose it and no installed shop can be renewed.
         Then put the public key shown below into <code>packages/server/src/licence-public-key.ts</code> and rebuild.
         Replacing an existing key invalidates every licence already issued.
       </p>

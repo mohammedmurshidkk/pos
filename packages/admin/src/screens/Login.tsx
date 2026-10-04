@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { Employee } from '../api/types'
+import { brand } from '../brand'
+import { BrandMark } from '../components/BrandMark'
 import { Banner, Button } from '../components/ui'
 import { useStore } from '../store'
 
@@ -81,7 +83,7 @@ export function Login() {
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div className="card" style={{ width: 760, maxWidth: '100%', padding: 32, display: 'grid', gap: 20 }}>
         <div>
-          <h1>{data?.settings.businessName ?? 'POS'}</h1>
+          <h1>{data?.settings.businessName ?? brand.productName}</h1>
           <div className="faint" style={{ fontSize: 13, marginTop: 2 }}>
             {counter ? `${counter.name} · ` : ''}Counter sign-in
           </div>
@@ -157,6 +159,8 @@ export function Login() {
             <Button variant="ghost" onClick={() => { setPicked(null); setPin('') }}>Choose someone else</Button>
           </div>
         ) : null}
+
+        <div style={{ justifySelf: 'center' }}><BrandMark /></div>
       </div>
     </div>
   )

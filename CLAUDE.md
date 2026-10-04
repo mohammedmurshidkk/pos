@@ -8,6 +8,18 @@ The full specification is in `docs/` — read `01-product-spec.md` before changi
 behaviour. `02-design-system.md`, `03-screens.md` and `04-stitch-prompts.md`
 cover the UI. `05-menu-import.md` covers the menu CSV import.
 
+## Keeping the docs (convention, from 2026-10-04)
+
+**Never delete or overwrite earlier text in `CLAUDE.md` or `docs/`.** When
+something changes, leave the old text where it is and add a dated block right
+under it:
+
+> **Update YYYY-MM-DD:** what changed, and why.
+
+New screens get their own section marked `new YYYY-MM-DD`. Every change also
+gets a line in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), newest first. The point
+is that anyone can see what the spec said before and what it says now.
+
 ## Layout
 
 ```
@@ -24,6 +36,7 @@ tools/             fake-printer.js · licence.mjs + licence-generator.html (vend
 ```bash
 pnpm -r test && pnpm -r typecheck        # 273 tests
 node tools/fake-printer.js 9100 9101 9102 9130
+pnpm printer:sim                         # same ports, receipts in a browser at :9180
 cd packages/server && pnpm dev           # hub on :4000
 cd packages/admin  && pnpm dev           # cashier UI on :5173 (proxies /api)
 cd packages/mobile && pnpm start         # Expo
@@ -157,6 +170,11 @@ db and its `-wal` sidecar. Single-group clears do **not** rebuild the file.
 ⚠️ The `before-clear-*.db` backups are full copies sitting next to the database.
 Handing a PC to another client means deleting those too.
 
+> **Update 2026-10-04 (3):** `before-clear-*.db` now goes to the backup folder
+> (Settings → Backup; default `backups/` next to the database) with the other
+> backups, and is pruned after 30 days like them. Handing a PC over still means
+> deleting that folder.
+
 **Never cleared:** install id, trial clock, licence key and the superadmin
 password — losing those would cost the shop its licence and lock the superadmin
 out of the installation it just reset. After a full clear nobody can sign in,
@@ -226,6 +244,9 @@ kitchen` (header-mapped, `kitchen` optional). Full reference: `docs/05-menu-impo
   (tablet or counter). Settlement prints only if no bill was printed yet or the
   order changed since (`REVISED`); otherwise cash just pops the drawer (`drawer`
   print job, no paper) and card prints nothing. Old `invoice` jobs still render.
+> **Update 2026-10-04:** the bill no longer prints the kitchen note ("no onion").
+> Notes print on the KOT only; modifiers still print on both (`renderBill` in
+> `server/src/templates.ts`, covered by `escpos.test.ts`).
 - **No payment without an open shift.** `settle` refuses when the counter has no
   open shift. A shift-less payment would be on no Z-report. Payment rows carry
   the settling `counterId`, `shiftId` and cashier; the order's `counterId` becomes
@@ -253,6 +274,64 @@ Not done: expenses/reports/settings screens in admin, QR pairing camera,
 customer lookup for delivery, 30-day backup retention, a reprint button for
 settled orders in the admin UI (the API already reprints them), APK build, app icon, code signing, refunds (deferred by client),
 Arabic (deferred).
+
+> **Update 2026-10-04:** built today, all on the counter PC unless noted —
+> **Expenses** screen + **Shift → Pay out**; **Bills** (settled/cancelled, search,
+> reprint); **order taking at the counter** (+ New order, Add items); Setup item
+> form "Asks for (modifier groups)", then the modifier screens **commented out**
+> (hidden, not removed); separate **Printers** screen removed (Test print and
+> Retry failed prints moved to Setup → Printers); **one-tap settle** (+ Split
+> payment for multi-tender); kitchen note off the bill; **tablet: note on a cart
+> line** after adding it. Server tests 227 → 235.
+>
+> Not done now: **reports screen** in admin; Settings **Backup** tab (path, last
+> run, Backup Now) and **30-day backup retention**; Dashboard printer-health and
+> last-backup strip; print queue detail (per-job view / discard); **A05 floor
+> view** and **A17 customers / delivery customer lookup** (P1); QR pairing camera;
+> modifier screens (hidden); APK build, app icon, code signing; refunds and
+> Arabic (deferred by client).
+
+> **Update 2026-10-04 (2):** built after the list above — **A05 floor view** on the counter
+> (sidebar **Floor**); **customers saved by phone** (unique, digits only) from any
+> order with a phone; **phone-first lookup** for takeaway, car and delivery on the
+> counter and the tablet (fills name and last address); **name and phone asked
+> at settle** for every order, printed on the bill. New column
+> `orders.customer_name` (migration `0009`). Server tests 235 → 248.
+>
+> Still not done from that list: reports screen; Settings Backup tab and 30-day
+> retention; Dashboard printer/backup strip; print queue detail; a **Customers
+> (CRM) screen** (lookup only for now); QR pairing camera; modifier screens
+> (hidden); APK build, icon, code signing; refunds and Arabic (deferred).
+
+> **Update 2026-10-04 (3):** built — **Reports** screen (sidebar, 8 tabs, any range,
+> CSV per tab); **Settings → Backup** tab (folder, last run, Backup now, recent
+> files); **backups** in `server/src/services/backups.ts`: every shift close (now
+> even without a folder from the client), **daily** when nothing in 24 h (checked
+> hourly from `startServer`), Backup now, before a clear; **30 days kept, newest
+> always kept**, only `pos-*.db` / `before-clear-*.db` touched; a failed backup
+> no longer blocks closing the shift (`backupError` in the reply, shown on Shift).
+> New `settings.backup_dir` (migration `0010`). **Dashboard** printer-health and
+> last-backup cards; **print queue panel** with per-job Retry / Discard (new job
+> status `discarded`, `GET /api/print-jobs?status=problems|all`,
+> `POST /api/print-jobs/:id/retry|discard`). Discounts & voids CSV fixed. Server
+> tests 248 → 257.
+>
+> Still not done: Customers (CRM) screen; QR pairing camera (not needed now);
+> modifier screens (hidden); **branding** (app name, icons, favicon) is next;
+> APK build, code signing; refunds and Arabic (deferred).
+
+> **Update 2026-10-04 (4):** **branding done.** The product is **Zentivo POS**
+> (Al Manzil stays as the demo restaurant). Name, colours, ids, installer file
+> name and data folder all come from **`brand/brand.json`**, and the icons from
+> `brand/icon.svg` + `brand/mark.svg` via **`pnpm brand`** (generated files are
+> committed). Readers: `desktop/electron-builder.cjs` (replaces `build` in
+> `package.json`), `desktop/src/main.ts`, `mobile/app.config.js`,
+> `admin/vite.config.ts`, `admin/src/brand.ts`, `tools/licence.mjs`. Ids are now
+> `com.zentivo.pos`, so old installs need an uninstall first. **Never change
+> `ids.*` after a shop installs.** The data folder is pinned by
+> `dataFolder`, not the app name, and `legacyDataFolders` moves an old folder
+> across. See `brand/README.md`. The vendor key folder is now `~/.zentivo-pos/`,
+> with fallback to `~/.almanzil-pos/`.
 
 **The v0.2.0 installer is broken** — it predates the loopback fix above and
 cannot reach its own hub. Rebuild before any Windows test.

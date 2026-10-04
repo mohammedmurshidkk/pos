@@ -21,6 +21,7 @@ export function Masters() {
   const [lists, setLists] = useState<Lists>({})
   const [editing, setEditing] = useState<Row | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [bulk, setBulk] = useState(false)
   const [importing, setImporting] = useState(false)
 
@@ -44,17 +45,29 @@ export function Masters() {
 
   useEffect(() => { void refresh(spec) }, [refresh, spec])
 
-  const save = async (values: Record<string, unknown>) => {
+  const save = async (values: Record<string, unknown>, groupIds?: string[]) => {
     if (!operator) return setError('Sign in at the counter first.')
     try {
-      if (editing === 'new') await api.createMaster(entity, values, operator.id)
-      else if (editing) await api.updateMaster(entity, editing.id, values, operator.id)
+      let id: string | undefined
+      if (editing === 'new') id = (await api.createMaster<Row>(entity, values, operator.id)).id
+      else if (editing) id = (await api.updateMaster<Row>(entity, editing.id, values, operator.id)).id ?? editing.id
+      if (id && groupIds) await api.setItemModifierGroups(id, groupIds, operator.id)
       setEditing(null)
       await refresh(spec)
       await load()   // the cashier screens read the menu from bootstrap
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
+    }
+  }
+
+  const runPrinterAction = async (fn: () => Promise<string>) => {
+    try {
+      setNotice(await fn())
+      setError(null)
+    } catch (e) {
+      setNotice(null)
+      setError(e instanceof ApiError ? e.message : 'Could not reach the printer.')
     }
   }
 
@@ -77,7 +90,7 @@ export function Masters() {
         {MASTERS.map((m) => (
           <button
             key={m.entity}
-            onClick={() => { setEntity(m.entity); setError(null) }}
+            onClick={() => { setEntity(m.entity); setError(null); setNotice(null) }}
             style={{
               textAlign: 'left', height: 'var(--row-h)', padding: '0 12px', cursor: 'pointer',
               borderRadius: 'var(--r-button)', border: '1px solid transparent', fontWeight: 600,
@@ -97,12 +110,21 @@ export function Masters() {
             {spec.hint ? <div className="muted" style={{ marginTop: 4 }}>{spec.hint}</div> : null}
           </div>
           {entity === 'tables' ? <Button onClick={() => setBulk(true)}>Bulk add</Button> : null}
+          {/* Printers used to have their own screen as well; Test print and
+              requeueing tickets that gave up after five tries live here now. */}
+          {entity === 'printers' ? (
+            <Button onClick={() => void runPrinterAction(async () => {
+              const { retried } = await api.retryJobs()
+              return retried ? `${retried} failed ticket(s) sent to the printers again.` : 'No failed tickets to retry.'
+            })}>Retry failed prints</Button>
+          ) : null}
           {entity === 'categories' || entity === 'items'
             ? <Button onClick={() => setImporting(true)}>Import CSV</Button> : null}
           <Button variant="primary" onClick={() => setEditing('new')}>Add {spec.title.replace(/s$/, '')}</Button>
         </div>
 
         {error ? <Banner tone="danger">{error}</Banner> : null}
+        {notice ? <Banner tone="success">{notice}</Banner> : null}
 
         <div className="card" style={{ overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -129,6 +151,12 @@ export function Masters() {
                       <td key={f.key} style={tdStyle(f)}>{display(f, row, lists)}</td>
                     ))}
                     <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {entity === 'printers' && !off ? (
+                        <Button variant="ghost" onClick={() => void runPrinterAction(async () => {
+                          await api.testPrint(row.id)
+                          return `Test page sent to ${String(row.name)}.`
+                        })}>Test print</Button>
+                      ) : null}
                       <Button variant="ghost" onClick={() => setEditing(row)}>Edit</Button>
                       {!off ? (
                         <Button variant="ghost" onClick={() => void deactivate(row)}>Disable</Button>
@@ -148,6 +176,8 @@ export function Masters() {
           lists={lists}
           row={editing === 'new' ? null : editing}
           decimals={data?.settings.currencyDecimals ?? 2}
+          // Modifier groups hidden for now: uncomment to show "Asks for" on the item form.
+          // withGroups={entity === 'items'}
           onCancel={() => setEditing(null)}
           onSave={save}
         />
@@ -199,14 +229,34 @@ function display(f: Field, row: Row, lists: Lists) {
   return f.key === 'name' ? <strong>{text}</strong> : <span className={text === '—' ? 'faint' : ''}>{text}</span>
 }
 
-function EditRow({ spec, lists, row, decimals, onCancel, onSave }: {
+function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
   spec: MasterSpec
   lists: Lists
   row: Row | null
   decimals: number
+  /** Items only: which modifier groups the tablet and counter ask for. */
+  withGroups?: boolean
   onCancel: () => void
-  onSave: (values: Record<string, unknown>) => void
+  onSave: (values: Record<string, unknown>, groupIds?: string[]) => void
 }) {
+  const [groupIds, setGroupIds] = useState<string[] | null>(withGroups && !row ? [] : null)
+  useEffect(() => {
+    if (!withGroups || !row) return
+    api.itemModifierGroups(row.id)
+      .then((r) => setGroupIds(r.groupIds))
+      .catch(() => setGroupIds([]))
+  }, [withGroups, row])
+  const groups = [...(lists.modifierGroups ?? [])]
+    .filter((g) => g.active !== false || groupIds?.includes(g.id))
+    .sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0))
+  const toggleGroup = (id: string) => setGroupIds((prev) => {
+    const cur = prev ?? []
+    // Keep the groups in their configured order, so the sheet asks
+    // "Spice Level" before "Add-ons" whatever order they were ticked in.
+    const next = cur.includes(id) ? cur.filter((g) => g !== id) : [...cur, id]
+    return groups.map((g) => g.id).filter((g) => next.includes(g))
+  })
+
   const initial = useMemo(() => {
     const out: Record<string, unknown> = { ...(spec.defaults ?? {}) }
     for (const f of spec.fields) {
@@ -239,7 +289,7 @@ function EditRow({ spec, lists, row, decimals, onCancel, onSave }: {
       else if (f.kind === 'select' && f.nullable && !v) out[f.key] = null
       else out[f.key] = v === '' ? null : v
     }
-    onSave(out)
+    onSave(out, withGroups && groupIds ? groupIds : undefined)
   }
 
   return (
@@ -281,10 +331,38 @@ function EditRow({ spec, lists, row, decimals, onCancel, onSave }: {
             )}
           </FieldWrap>
         ))}
+        {withGroups ? (
+          // Not FieldWrap: that is a <label>, and these are labels of their own.
+          <div style={{ display: 'grid', gap: 4 }}>
+            <span className="label">Asks for (modifier groups)</span>
+            {groupIds == null ? <span className="muted">Loading…</span>
+              : groups.length === 0 ? (
+                <span className="muted">No modifier groups yet. Add them under Modifier groups first.</span>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {groups.map((g) => (
+                    <label key={g.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={groupIds.includes(g.id)}
+                        onChange={() => toggleGroup(g.id)}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span>{String(g.name)}</span>
+                      <span className="faint" style={{ fontSize: 13 }}>
+                        {Number(g.minSelect ?? 0) > 0 ? 'required' : 'optional'}
+                        {Number(g.maxSelect ?? 1) > 1 ? ` · up to ${g.maxSelect}` : ' · pick one'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+          </div>
+        ) : null}
       </div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" onClick={submit}>Save</Button>
+        <Button variant="primary" disabled={withGroups && groupIds == null} onClick={submit}>Save</Button>
       </div>
     </Modal>
   )

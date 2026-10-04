@@ -291,7 +291,8 @@ export function taxSummary(range: Range) {
 /** RFC 4180 CSV. Money is emitted as decimals so spreadsheets sum it. */
 export function toCsv(rows: Record<string, unknown>[], moneyKeys: string[] = [], decimals = 2): string {
   if (rows.length === 0) return ''
-  const headers = Object.keys(rows[0]!)
+  // Every key of every row: discounts and voids share one sheet with different columns.
+  const headers = [...new Set(rows.flatMap((r) => Object.keys(r)))]
   const cell = (key: string, value: unknown): string => {
     if (value == null) return ''
     if (moneyKeys.includes(key) && typeof value === 'number') return (value / 10 ** decimals).toFixed(decimals)

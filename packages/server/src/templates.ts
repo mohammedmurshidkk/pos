@@ -30,6 +30,10 @@ export interface BillPayload {
   orderNo: number
   orderType: string
   tableLabel?: string | null
+  /** Asked at order time (takeaway, car, delivery) or at settle. */
+  customerName?: string | null
+  customerPhone?: string | null
+  deliveryAddress?: string | null
   waiterName: string
   counterName: string
   at: string
@@ -153,6 +157,10 @@ export function renderBill(p: BillPayload, widthMm: number): Buffer {
   r.kv('Order', `#${p.orderNo}`)
   r.kv('Date', p.at)
   r.kv(TYPE_LABEL[p.orderType] ?? p.orderType, p.tableLabel ?? '')
+  if (p.customerName) r.kv('Customer', p.customerName)
+  // Delivery already shows the phone as its label above.
+  if (p.customerPhone && p.customerPhone !== p.tableLabel) r.kv('Phone', p.customerPhone)
+  if (p.deliveryAddress) r.line(`Deliver to: ${p.deliveryAddress}`)
   r.kv('Waiter', p.waiterName)
   r.kv('Counter', p.counterName)
   r.rule('-')
@@ -160,7 +168,8 @@ export function renderBill(p: BillPayload, widthMm: number): Buffer {
   for (const l of p.lines) {
     r.itemRow(l.qty, l.name, money(l.amount))
     for (const m of l.modifiers ?? []) r.sub(m)
-    if (l.note) r.sub(l.note)
+    // No kitchen note here: "no onion" is for the cook. The bill is the
+    // customer's tax invoice, and the note only prints on the KOT.
   }
 
   r.rule('-')

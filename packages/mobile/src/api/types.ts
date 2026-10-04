@@ -104,7 +104,16 @@ export interface SubmitPayload {
   bayNo?: string | null
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
+  /** Name as given. With a phone number, the counter saves the customer (unique by phone). */
+  customerName?: string | null
   lines: { itemId: string; qty: number; note?: string | null; modifiers?: { id: string; name: string; priceDelta: number }[] }[]
   employeeId: string
   suppressKot?: boolean
+}
+
+/** One customer per phone number. Addresses newest first. */
+export interface Customer {
+  id: string; name: string; phone: string
+  addresses: string[]
+  orderCount: number; lastOrderAt: string | null
 }

@@ -113,6 +113,18 @@ The superadmin screen is reached later with **Ctrl + Alt + Shift + A**.
 
 The tablet must be on the **same wifi** as the PC.
 
+> **Update 2026-10-04:** the product is now **Zentivo POS**. The installer is
+> `ZentivoPOS-Setup-<version>.exe`, and the shortcut and the tablet app are named
+> **Zentivo POS**. The Windows app id and the Android package changed to
+> `com.zentivo.pos`, so on a machine that has the old build:
+> - **PC:** uninstall "Al Manzil POS" first (data is kept), then install Zentivo
+>   POS. On first start it moves `%APPDATA%\Al Manzil POS` to
+>   `%APPDATA%\Zentivo POS`, so the database, licence and backups carry over.
+> - **Tablet:** uninstall the old app, install the new APK and pair it again.
+>   Send any queued orders before uninstalling.
+>
+> To rename again later, see `brand/README.md`.
+
 With a USB cable and Android platform tools (`brew install --cask android-platform-tools`):
 
 ```bash

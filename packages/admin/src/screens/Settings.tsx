@@ -3,6 +3,8 @@ import { ApiError, api } from '../api/client'
 import type { Kitchen, Settings as SettingsRow, SettingsPatch } from '../api/types'
 import { Banner, Button, Field, inputStyle } from '../components/ui'
 import { useStore } from '../store'
+import { useSearchParams } from 'react-router-dom'
+import { BackupSettings } from './BackupSettings'
 
 /** Everything the form edits, held as strings until save. */
 interface Form {
@@ -101,6 +103,31 @@ const HOURS = Array.from({ length: 24 }, (_, h) => ({
  * all past sales.
  */
 export function Settings() {
+  // The tab lives in the URL so the Dashboard can link straight to Backup.
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'backup' ? 'backup' : 'general'
+  return (
+    <div style={{ display: 'grid', gap: 16, maxWidth: 760 }}>
+      <h1>Settings</h1>
+      <div role="tablist" style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)' }}>
+        {([['general', 'General'], ['backup', 'Backup']] as const).map(([id, label]) => (
+          <button
+            key={id} role="tab" aria-selected={tab === id}
+            onClick={() => setParams(id === 'general' ? {} : { tab: id }, { replace: true })}
+            style={{
+              padding: '10px 14px', cursor: 'pointer', background: 'transparent', border: 'none', fontWeight: 600,
+              borderBottom: `2px solid ${tab === id ? 'var(--primary)' : 'transparent'}`,
+              color: tab === id ? 'var(--primary)' : 'var(--text-muted)', marginBottom: -1,
+            }}
+          >{label}</button>
+        ))}
+      </div>
+      {tab === 'backup' ? <BackupSettings /> : <GeneralSettings />}
+    </div>
+  )
+}
+
+function GeneralSettings() {
   const { operator, data, load } = useStore()
   const current = data?.settings ?? null
   const [form, setForm] = useState<Form | null>(current ? toForm(current) : null)
@@ -176,7 +203,7 @@ export function Settings() {
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 760 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <h1 style={{ flex: 1 }}>Settings</h1>
+        <span style={{ flex: 1 }} />
         <Button disabled={!dirty || busy} onClick={() => { setForm(toForm(current)); setError(null) }}>Discard</Button>
         <Button variant="primary" disabled={!dirty || busy} onClick={() => void save()}>
           {busy ? 'Saving…' : 'Save changes'}

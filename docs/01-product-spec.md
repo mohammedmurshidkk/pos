@@ -234,6 +234,8 @@ Your example — 1 periperi alfaham + 1 chicken noodles + 1 apple juice — prod
 | car | **vehicle_no**, optional bay/slot no |
 | delivery | phone → customer lookup → name + address |
 
+> **Update 2026-10-04 (2):** All three non-dine-in types now take an optional phone and name (delivery still needs phone and address), and the counter can ask any order for name and phone at settle. Customers are unique by phone (digits only); `orders.customer_name` (migration `0009`) keeps the name as given on that order. Customer lookup is built; the CRM screen comes later.
+
 ### 6.3 Invoice lifecycle
 ```
 open ──KOT sent──> open ──bill printed──> billed ──settle──> settled (locked)
@@ -404,6 +406,14 @@ Non-negotiable for MVP:
 - Show last-backup timestamp on the dashboard
 
 ~30 lines of code. Skipping it is the single most likely way this goes wrong.
+
+> **Update 2026-10-04 (3):** built. A `VACUUM INTO` snapshot is taken at every
+> shift close, **once a day** if no shift was closed, on **Backup now**, and
+> before a data clear. Files older than **30 days** are deleted after each backup,
+> but the newest is always kept (a shop closed for a month still has one). The
+> folder is chosen in Settings → Backup, so a USB stick or second drive works;
+> there is no automatic copy to a second place yet. The Dashboard shows the last
+> backup, and warns when it is over a day old or failed.
 
 ---
 

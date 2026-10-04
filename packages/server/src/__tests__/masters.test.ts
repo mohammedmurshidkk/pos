@@ -170,3 +170,23 @@ describe('bulk tables', () => {
       .toThrow(/before the first/i)
   })
 })
+
+describe('item modifier groups', () => {
+  it('links groups to an item in the order given, replacing the old set', () => {
+    const cat = db.select().from(s.categories).get()!
+    const item = M.createMaster('items', { categoryId: cat.id, name: 'Shawarma Plate', price: 2500 }, admin) as { id: string }
+    const groups = M.listMaster('modifierGroups') as { id: string; name: string }[]
+    const spice = byName(groups, 'Spice Level').id
+    const addons = byName(groups, 'Add-ons').id
+
+    expect(M.listItemModifierGroups(item.id)).toEqual([])
+    expect(M.setItemModifierGroups(item.id, [addons, spice], admin)).toEqual([addons, spice])
+    expect(M.setItemModifierGroups(item.id, [spice], admin)).toEqual([spice])
+    expect(M.setItemModifierGroups(item.id, [], admin)).toEqual([])
+  })
+
+  it('refuses a group that does not exist', () => {
+    const item = db.select().from(s.items).get()!
+    expect(() => M.setItemModifierGroups(item.id, ['nope'], admin)).toThrow(/modifier group/i)
+  })
+})

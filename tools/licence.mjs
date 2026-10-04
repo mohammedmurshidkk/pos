@@ -3,7 +3,7 @@
  * Licence tooling — run by YOU (the vendor), never shipped to a shop.
  *
  *   node tools/licence.mjs keygen
- *       Creates an Ed25519 keypair in ~/.almanzil-pos/. Prints the public key to
+ *       Creates an Ed25519 keypair in ~/.zentivo-pos/ (brand.json → vendorKeyFolder). Prints the public key to
  *       paste into packages/server/src/licence-public-key.ts. Refuses to overwrite.
  *
  *   node tools/licence.mjs sign --install <id> --customer "Al Manzil" --days 365 [--plan paid|trial]
@@ -16,7 +16,7 @@
  *   node tools/licence.mjs inspect <key>
  *       Decodes a key without verifying it — for support calls.
  *
- * BACK UP ~/.almanzil-pos/licence-private.pem. Lose it and you cannot issue or
+ * BACK UP ~/.zentivo-pos/licence-private.pem (a key still in ~/.almanzil-pos/ is found there). Lose it and you cannot issue or
  * renew a licence for any installed shop without shipping a new app build.
  */
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto'
@@ -24,7 +24,20 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import os from 'node:os'
 import path from 'node:path'
 
-const DIR = process.env.POS_LICENCE_DIR ?? path.join(os.homedir(), '.almanzil-pos')
+const brand = JSON.parse(readFileSync(new URL('../brand/brand.json', import.meta.url), 'utf8'))
+
+/** The key folder is named in brand.json; a key still in a folder from an earlier name is used where it is. */
+function keyDir() {
+  if (process.env.POS_LICENCE_DIR) return process.env.POS_LICENCE_DIR
+  const current = path.join(os.homedir(), brand.vendorKeyFolder)
+  if (existsSync(path.join(current, 'licence-private.pem'))) return current
+  const legacy = brand.legacyVendorKeyFolders
+    .map((f) => path.join(os.homedir(), f))
+    .find((d) => existsSync(path.join(d, 'licence-private.pem')))
+  return legacy ?? current
+}
+
+const DIR = keyDir()
 const PRIVATE = path.join(DIR, 'licence-private.pem')
 const PUBLIC = path.join(DIR, 'licence-public.pem')
 

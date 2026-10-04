@@ -41,6 +41,8 @@ export interface Employee {
   /** Whether a PIN is set — the hash itself never leaves the hub. */
   hasPin?: boolean
 }
+export interface ModifierGroup { id: string; name: string; minSelect: number; maxSelect: number; sort: number }
+export interface Modifier { id: string; groupId: string; name: string; priceDelta: number; sort: number }
 export interface Counter { id: string; name: string }
 export interface PaymentMode {
   id: string; name: string; type: string; merchantName: string | null
@@ -56,6 +58,9 @@ export interface Bootstrap {
   employees: Employee[]
   counters: Counter[]
   paymentModes: PaymentMode[]
+  modifierGroups: ModifierGroup[]
+  modifiers: Modifier[]
+  itemModifierGroups: { itemId: string; groupId: string; sort: number }[]
   licence?: { state: LicenceState; plan: 'trial' | 'paid' | null; daysLeft: number; msLeft: number; warning: boolean; expiresAt: string | null }
 }
 
@@ -94,6 +99,8 @@ export interface Order {
   id: string; orderNo: number; type: OrderType; status: OrderStatus
   tableId: string | null; ticketLabel: string | null
   vehicleNo: string | null; phoneSnapshot: string | null
+  customerId: string | null; customerName: string | null; addressSnapshot: string | null
+  billedAt: string | null
   waiterId: string | null; createdBy: string; openedAt: string
   subtotal: number; discountAmount: number; discountType: string
   serviceCharge: number; taxAmount: number; total: number
@@ -108,9 +115,31 @@ export interface Printer {
   width: number; enabled: boolean; online: boolean
 }
 
+/** One row of the print queue, as the counter's queue panel shows it. */
 export interface PrintJob {
-  id: string; printerId: string; kind: string; status: string
-  attempts: number; lastError: string | null; createdAt: string
+  id: string; printerId: string; printerName: string
+  kind: string; kindLabel: string
+  /** What staff recognise it by: kitchen, invoice, order and table. */
+  detail: string
+  status: 'pending' | 'printing' | 'done' | 'failed' | 'discarded'
+  attempts: number; lastError: string | null
+  createdAt: string; completedAt: string | null
+}
+
+export interface BackupFile { name: string; bytes: number; createdAt: string }
+
+export interface BackupStatus {
+  dir: string
+  /** True when the folder was chosen in Settings rather than the default. */
+  custom: boolean
+  lastBackupAt: string | null
+  /** Nothing in the last 24 hours. */
+  overdue: boolean
+  retentionDays: number
+  count: number
+  totalBytes: number
+  recent: BackupFile[]
+  lastError: { at: string; message: string } | null
 }
 
 export interface ZReport {
@@ -148,4 +177,45 @@ export interface MenuImportPlan {
   errors: { row: number; message: string }[]
   warnings: { row: number; message: string }[]
   applied: boolean
+}
+
+export type RangePreset = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom'
+export interface RangeQuery { preset: RangePreset; from?: string; to?: string }
+export interface RangeResult { from: string; to: string; label: string }
+
+export interface ExpenseCategory { id: string; name: string; active: boolean }
+export interface Expense {
+  id: string; amount: number; note: string | null; paidFromDrawer: boolean
+  shiftId: string | null; createdAt: string
+  categoryId: string; category: string; paidBy: string
+}
+
+/** A settled or cancelled order, with what was paid against it. */
+export interface ClosedOrder extends Order {
+  settledAt: string | null
+  payments: { amount: number; refNo: string | null; mode: string }[]
+}
+
+/** What POST /api/orders/submit takes — one idempotent create + add + send. */
+export interface SubmitOrder {
+  batchRef: string
+  orderId?: string | null
+  type: OrderType
+  tableId?: string | null
+  ticketLabel?: string | null
+  vehicleNo?: string | null
+  bayNo?: string | null
+  phoneSnapshot?: string | null
+  addressSnapshot?: string | null
+  customerName?: string | null
+  lines: { itemId: string; qty: number; note: string | null; modifiers: { id: string; name: string; priceDelta: number }[] }[]
+  employeeId: string
+  suppressKot?: boolean
+}
+
+/** One customer per phone number. Addresses newest first. */
+export interface Customer {
+  id: string; name: string; phone: string
+  addresses: string[]
+  orderCount: number; lastOrderAt: string | null
 }

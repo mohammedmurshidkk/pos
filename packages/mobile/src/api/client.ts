@@ -1,4 +1,4 @@
-import type { Bootstrap, Order, SendResult, SubmitPayload } from './types'
+import type { Bootstrap, Customer, Order, SendResult, SubmitPayload } from './types'
 
 /** An error the waiter should see, rather than a crash. */
 export class ApiError extends Error {
@@ -139,4 +139,8 @@ export const api = {
 
   /** Confirms the stored token is still accepted. */
   me: () => request<{ id: string; name: string } | null>('/api/devices/me'),
+
+  /** Delivery: phone first. `customer` is null when the number is new. */
+  lookupCustomer: (phone: string) =>
+    request<{ customer: Customer | null }>(`/api/customers/lookup?phone=${encodeURIComponent(phone)}`),
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, lt } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
 import { db } from '../db.js'
@@ -51,22 +51,32 @@ export function createExpense(input: {
   return db.select().from(s.expenses).where(eq(s.expenses.id, id)).get()!
 }
 
-export function listExpenses(from?: Date, to?: Date) {
-  const rows = db
+/**
+ * Expenses newest first. `to` is exclusive, matching the report ranges, so
+ * "today" never picks up the first minute of tomorrow's business day.
+ */
+export function listExpenses(opts: { from?: Date; to?: Date; categoryId?: string | null } = {}) {
+  const where = [
+    opts.from ? gte(s.expenses.createdAt, opts.from) : undefined,
+    opts.to ? lt(s.expenses.createdAt, opts.to) : undefined,
+    opts.categoryId ? eq(s.expenses.expenseCategoryId, opts.categoryId) : undefined,
+  ].filter((w) => w !== undefined)
+  return db
     .select({
       id: s.expenses.id,
       amount: s.expenses.amount,
       note: s.expenses.note,
       paidFromDrawer: s.expenses.paidFromDrawer,
+      shiftId: s.expenses.shiftId,
       createdAt: s.expenses.createdAt,
+      categoryId: s.expenses.expenseCategoryId,
       category: s.expenseCategories.name,
       paidBy: s.employees.name,
     })
     .from(s.expenses)
     .innerJoin(s.expenseCategories, eq(s.expenses.expenseCategoryId, s.expenseCategories.id))
     .innerJoin(s.employees, eq(s.expenses.paidBy, s.employees.id))
-    .where(from && to ? and(gte(s.expenses.createdAt, from), lte(s.expenses.createdAt, to)) : undefined)
+    .where(where.length ? and(...where) : undefined)
     .orderBy(desc(s.expenses.createdAt))
     .all()
-  return rows
 }

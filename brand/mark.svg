@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Zentivo mark: a till receipt with a Z cut out of it. White on transparent.
+       Used on its own for the Android adaptive/themed icon, the splash screen and
+       the in-app logo. tools/brand.mjs shrinks it into Android's safe zone. -->
+  <defs><mask id="cut"><rect width="1024" height="1024" fill="#fff"/><path d="M392 356 H632 L392 604 H632" fill="none" stroke="#000" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/></mask></defs>
+  <path d="M280 236 Q280 196 320 196 H704 Q744 196 744 236 V776 L686 832 L628 776 L570 832 L512 776 L454 832 L396 776 L338 832 L280 776 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="16" stroke-linejoin="round" mask="url(#cut)"/>
+</svg>

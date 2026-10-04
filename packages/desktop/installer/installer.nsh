@@ -1,4 +1,4 @@
-; Included by electron-builder's NSIS installer (package.json → build.nsis.include).
+; Included by electron-builder's NSIS installer (electron-builder.cjs → nsis.include).
 ;
 ; The hub listens on TCP 4000 for the tablets. Without a rule Windows shows an
 ; "allow access?" prompt on first run, and if the shop wifi is classed as a
@@ -9,10 +9,10 @@
 ; builds from git — the original file was never committed and was lost.
 
 !macro customInstall
-  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Al Manzil POS"'
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Al Manzil POS" dir=in action=allow program="$INSTDIR\${APP_EXECUTABLE_FILENAME}" enable=yes profile=any'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${PRODUCT_NAME}"'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${PRODUCT_NAME}" dir=in action=allow program="$INSTDIR\${APP_EXECUTABLE_FILENAME}" enable=yes profile=any'
 !macroend
 
 !macro customUnInstall
-  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Al Manzil POS"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${PRODUCT_NAME}"'
 !macroend

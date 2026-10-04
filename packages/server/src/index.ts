@@ -12,7 +12,8 @@ import { AppError, conflict, forbidden, notFound, unpaired } from './errors.js'
 import { pingPrinter } from './printer.js'
 import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
-import { addItems, createOrder, getOrder, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
+import { addItems, createOrder, getOrder, listClosedOrders, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
+import { findCustomerByPhone, searchCustomers } from './services/customers.js'
 import { changeOwnPin, login, setPin } from './services/auth.js'
 import {
   authenticateDevice, cancelPairingCode, createPairingCode, hubAddresses, listDevices, pairDevice, revokeDevice,
@@ -24,8 +25,11 @@ import {
   setSuperadminPassword, setupSuperadmin, superadminConfigured, superadminLogin, superadminLogout,
 } from './services/superadmin.js'
 import { createExpense, listExpenses } from './services/expenses.js'
+import { backupStatus, runBackup, setBackupDirectory, startDailyBackups } from './services/backups.js'
+import { discardPrintJob, listPrintJobs, printJobCounts, retryPrintJob } from './services/print-jobs.js'
 import {
-  MASTERS, bulkTables, createMaster, deactivateMaster, listMaster, updateMaster, updateSettings,
+  MASTERS, bulkTables, createMaster, deactivateMaster, listItemModifierGroups, listMaster,
+  setItemModifierGroups, updateMaster, updateSettings,
 } from './services/masters.js'
 import {
   categoryWise, discountsAndVoids, employeeWise, itemWise, orderTypeWise,
@@ -104,6 +108,8 @@ const TABLET_ROUTES = new Set([
   'POST /api/orders/:id/send',
   'POST /api/orders/:id/table',
   'POST /api/orders/:id/bill',
+  // Delivery: phone first, then the name and saved addresses fill in.
+  'GET /api/customers/lookup',
   'GET /ws',
 ])
 
@@ -202,6 +208,13 @@ app.get('/api/bootstrap', async () => ({
 
 app.get('/api/orders/open', async () => listOpenOrders())
 
+/** Settled and cancelled bills, for finding and reprinting them at the counter. */
+app.get('/api/orders/closed', async (req) => {
+  const q = req.query as { preset?: RangePreset; from?: string; to?: string }
+  const range = resolveRange({ preset: q.preset ?? 'today', from: q.from, to: q.to })
+  return { range: { from: range.from, to: range.to, label: range.label }, orders: listClosedOrders(range) }
+})
+
 app.get('/api/orders/:id', async (req) => {
   const order = getOrder((req.params as { id: string }).id)
   if (!order) throw notFound('order')
@@ -268,6 +281,19 @@ app.post('/api/orders/:id/discount', async (req) => {
   return result
 })
 
+/* ───────────────────────────── customers ───────────────────────────── */
+
+/** One customer per phone number. `customer` is null when the number is new. */
+app.get('/api/customers/lookup', async (req) => {
+  const { phone } = req.query as { phone?: string }
+  return { customer: findCustomerByPhone(phone ?? '') }
+})
+
+app.get('/api/customers', async (req) => {
+  const { q } = req.query as { q?: string }
+  return { customers: searchCustomers(q ?? '') }
+})
+
 /* ───────────────────────────── billing ───────────────────────────── */
 
 app.post('/api/orders/:id/bill', async (req) => {
@@ -330,14 +356,19 @@ app.post('/api/shifts/:id/close', async (req) => {
   const { countedCash, employeeId, backupDir } = req.body as {
     countedCash: number; employeeId: string; backupDir?: string
   }
-  const result = closeShift(id, countedCash, employeeId, backupDir ?? process.env.POS_BACKUP_DIR)
+  // No folder from the client: the Settings folder (or the default) is used.
+  const result = closeShift(id, countedCash, employeeId, backupDir)
   broadcast('shift.closed', { shiftId: id })
   return result
 })
 
 /* ───────────────────────────── expenses ───────────────────────────── */
 
-app.get('/api/expenses', async () => listExpenses())
+app.get('/api/expenses', async (req) => {
+  const q = req.query as { preset?: RangePreset; from?: string; to?: string; categoryId?: string }
+  const range = resolveRange({ preset: q.preset ?? 'today', from: q.from, to: q.to })
+  return { range: { from: range.from, to: range.to, label: range.label }, expenses: listExpenses({ ...range, categoryId: q.categoryId }) }
+})
 
 app.post('/api/expenses', async (req) => {
   const expense = createExpense(req.body as Parameters<typeof createExpense>[0])
@@ -545,6 +576,19 @@ app.delete('/api/masters/:entity/:id', async (req) => {
   return result
 })
 
+/** The modifier groups an item asks for. The body replaces the whole set. */
+app.get('/api/masters/items/:id/modifier-groups', async (req) =>
+  ({ groupIds: listItemModifierGroups((req.params as { id: string }).id) }))
+
+app.put('/api/masters/items/:id/modifier-groups', async (req) => {
+  const { id } = req.params as { id: string }
+  const { groupIds, employeeId } = (req.body ?? {}) as { groupIds?: string[]; employeeId: string }
+  if (!Array.isArray(groupIds)) throw conflict('Send groupIds as a list.')
+  const result = setItemModifierGroups(id, groupIds, employeeId)
+  broadcast('master.changed', { entity: 'items' })
+  return { groupIds: result }
+})
+
 app.post('/api/masters/tables/bulk', async (req) => {
   const { employeeId, ...body } = req.body as Parameters<typeof bulkTables>[0] & { employeeId: string }
   const result = bulkTables(body, employeeId)
@@ -587,6 +631,7 @@ const MONEY_KEYS: Record<string, string[]> = {
   employees: ['total', 'averageTicket'],
   'payment-modes': ['total'],
   'order-types': ['total'],
+  'discounts-voids': ['amount'],
   tax: ['net', 'tax', 'total'],
 }
 
@@ -618,9 +663,17 @@ app.get('/api/reports/:kind', async (req, reply) => {
     const { invoiceRange: _drop, range: _range, ...rest } = r
     return rest
   }
-  const rows = (Array.isArray(data) ? data : [data as Record<string, unknown>]).map((r) =>
-    flat(r as Record<string, unknown>),
-  )
+  // Discounts and voids are two lists; a spreadsheet wants one, with a column saying which.
+  const list: Record<string, unknown>[] = kind === 'discounts-voids'
+    ? (() => {
+      const d = data as ReturnType<typeof discountsAndVoids>
+      return [
+        ...d.discounts.map((r) => ({ kind: 'discount', ...r })),
+        ...d.voids.map((r) => ({ kind: 'void', ...r })),
+      ]
+    })()
+    : Array.isArray(data) ? data : [data as Record<string, unknown>]
+  const rows = list.map(flat)
   const csv = toCsv(rows, MONEY_KEYS[kind] ?? [], cfg.currencyDecimals)
   return reply
     .header('content-type', 'text/csv; charset=utf-8')
@@ -650,11 +703,44 @@ app.post('/api/printers/:id/test', async (req) => {
   return { queued: true }
 })
 
-app.get('/api/print-jobs', async () => db.select().from(s.printJobs).all())
+app.get('/api/print-jobs', async (req) => {
+  const q = req.query as { status?: 'problems' | 'all'; limit?: string }
+  return { jobs: listPrintJobs({ filter: q.status, limit: q.limit ? Number(q.limit) : undefined }), counts: printJobCounts() }
+})
+
+app.post('/api/print-jobs/:id/retry', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  const r = retryPrintJob((req.params as { id: string }).id, employeeId)
+  broadcast('print.changed', r)
+  return r
+})
+
+app.post('/api/print-jobs/:id/discard', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  const r = discardPrintJob((req.params as { id: string }).id, employeeId)
+  broadcast('print.changed', r)
+  return r
+})
 
 app.post('/api/print-jobs/retry', async (req) => {
   const { printerId } = (req.body ?? {}) as { printerId?: string }
   return { retried: await printQueue.retryFailed(printerId) }
+})
+
+/* ───────────────────────────── backups ───────────────────────────── */
+// Counter PC only (not in TABLET_ROUTES): a backup is a copy of every sale.
+
+app.get('/api/backups', async () => backupStatus())
+
+app.post('/api/backups', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  const r = runBackup('manual', { employeeId })
+  return { ...r, status: backupStatus() }
+})
+
+app.put('/api/backups/folder', async (req) => {
+  const { dir, employeeId } = req.body as { dir: string | null; employeeId: string }
+  return setBackupDirectory(dir, employeeId)
 })
 
 /* ───────────────────────────── admin UI ───────────────────────────── */
@@ -711,5 +797,7 @@ export async function startServer(opts: { port?: number; pretty?: boolean } = {}
 
   // Anything left pending from a crash, or a printer that was off overnight.
   await printQueue.kickAll()
+  // A shop that never closes its shift still gets a backup a day.
+  startDailyBackups()
   return { app, port }
 }

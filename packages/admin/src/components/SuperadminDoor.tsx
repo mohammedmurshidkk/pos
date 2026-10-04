@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ApiError, setSuperadminToken, superadmin } from '../api/client'
 import { Superadmin } from '../screens/Superadmin'
+import { BrandMark } from './BrandMark'
 import { Banner, Button, Field, Modal, inputStyle } from './ui'
 
 /**
@@ -176,6 +177,7 @@ function FirstRunSetup({ onDone }: { onDone: (token: string) => void }) {
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div className="card" style={{ width: 520, maxWidth: '100%', padding: 32, display: 'grid', gap: 16 }}>
         <div>
+          <div style={{ marginBottom: 12 }}><BrandMark size={32} /></div>
           <h1>First-time setup</h1>
           <div className="muted" style={{ marginTop: 6 }}>
             This hub is new. Choose the superadmin password — it manages the admins and the licence of this

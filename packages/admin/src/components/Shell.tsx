@@ -5,13 +5,19 @@ import { Login } from '../screens/Login'
 import { OpenCounter } from '../screens/OpenCounter'
 import { timeLeft } from '../licence'
 import { useStore } from '../store'
+import { brand } from '../brand'
+import { BrandMark } from './BrandMark'
 import { Banner, Button, Field, Modal, inputStyle } from './ui'
+import { PrintQueue } from './PrintQueue'
 
 const NAV = [
   { to: '/billing', label: 'Billing' },
+  { to: '/floor', label: 'Floor' },
+  { to: '/bills', label: 'Bills' },
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/reports', label: 'Reports' },
   { to: '/shift', label: 'Shift' },
-  { to: '/printers', label: 'Printers' },
+  { to: '/expenses', label: 'Expenses' },
   { to: '/masters', label: 'Setup' },
   { to: '/settings', label: 'Settings' },
   { to: '/devices', label: 'Devices' },
@@ -21,24 +27,48 @@ const NAV = [
 /**
  * The printer strip lives in the header at all times. Support staff work off
  * it, and a cashier needs to see a dead kitchen printer without hunting.
+ * Clicking it opens the print queue; a red count means tickets that never
+ * reached paper.
  */
 function PrinterStrip() {
-  const printers = useStore((s) => s.printers)
-  if (printers.length === 0) return null
+  const { printers, jobCounts, setQueueOpen } = useStore()
+  const failed = Object.values(jobCounts).reduce((a, c) => a + c.failed, 0)
+  const waiting = Object.values(jobCounts).reduce((a, c) => a + c.pending, 0)
+  // Printer pings can still be running; failed tickets must show regardless.
+  if (printers.length === 0 && failed + waiting === 0) return null
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-      {printers.map((p) => (
-        <span key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-          <span style={{
-            width: 9, height: 9, borderRadius: 5,
-            background: p.online ? 'var(--success)' : 'var(--danger)',
-          }} />
-          <span className="muted">{p.name.replace(' Kitchen', '').replace(' Printer', '')}</span>
-        </span>
-      ))}
-    </div>
+    <button
+      onClick={() => setQueueOpen(true)}
+      title="Open the print queue"
+      style={{
+        display: 'flex', gap: 14, alignItems: 'center', background: 'transparent', cursor: 'pointer',
+        border: '1px solid transparent', borderRadius: 'var(--r-button)', padding: '6px 8px', color: 'inherit',
+      }}
+    >
+      {printers.map((p) => {
+        const c = jobCounts[p.id]
+        return (
+          <span key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+            <span style={{
+              width: 9, height: 9, borderRadius: 5,
+              background: p.online ? 'var(--success)' : 'var(--danger)',
+            }} />
+            <span className="muted">{p.name.replace(' Kitchen', '').replace(' Printer', '')}</span>
+            {c?.failed ? <span style={badge('var(--danger)')}>{c.failed}</span> : null}
+          </span>
+        )
+      })}
+      <span className="muted" style={{ fontSize: 13, fontWeight: 600 }}>
+        {failed ? <span style={{ color: 'var(--danger)' }}>{failed} failed</span> : waiting ? `${waiting} waiting` : 'Print queue'}
+      </span>
+    </button>
   )
 }
+
+const badge = (bg: string): React.CSSProperties => ({
+  minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', fontSize: 11, fontWeight: 700,
+  background: bg, color: 'white', display: 'grid', placeItems: 'center',
+})
 
 function OperatorChip() {
   const { operator, signOut } = useStore()
@@ -116,7 +146,7 @@ function ChangePin({ employeeId, onClose }: { employeeId: string; onClose: () =>
 }
 
 export function Shell() {
-  const { data, error, load, refreshPrinters, operator, counterId } = useStore()
+  const { data, error, load, refreshPrinters, refreshJobs, queueOpen, setQueueOpen, operator, counterId } = useStore()
   const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
   const [canOpen, setCanOpen] = useState(true)
 
@@ -161,6 +191,13 @@ export function Shell() {
     return () => clearInterval(t)
   }, [refreshPrinters])
 
+  // Job counts are one cheap query, so they refresh faster than the printer pings.
+  useEffect(() => {
+    void refreshJobs()
+    const t = setInterval(() => { void refreshJobs() }, 10_000)
+    return () => clearInterval(t)
+  }, [refreshJobs])
+
   if (!data) {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
@@ -191,7 +228,7 @@ export function Shell() {
         padding: 16, display: 'flex', flexDirection: 'column', gap: 4,
       }}>
         <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>
-          {data?.settings.businessName ?? 'POS'}
+          {data?.settings.businessName ?? brand.productName}
         </div>
         {NAV.map((n) => (
           <NavLink
@@ -208,6 +245,7 @@ export function Shell() {
             {n.label}
           </NavLink>
         ))}
+        <div style={{ marginTop: 'auto', paddingTop: 12 }}><BrandMark /></div>
       </nav>
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -245,6 +283,7 @@ export function Shell() {
           ) : null}
           <Outlet />
         </main>
+        {queueOpen ? <PrintQueue onClose={() => setQueueOpen(false)} /> : null}
       </div>
     </div>
   )

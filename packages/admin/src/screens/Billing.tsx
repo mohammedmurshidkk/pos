@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { Order, OrderType } from '../api/types'
 import { Banner, Button, EmptyState, Field, Modal, Pill, inputStyle } from '../components/ui'
@@ -27,7 +28,10 @@ const minutes = (iso: string) =>
 export function Billing() {
   const { data, operator, counterId, money, employeeName } = useStore()
   const [orders, setOrders] = useState<Order[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const navigate = useNavigate()
+  // Coming back from taking an order at the counter: show that order.
+  const cameFrom = (useLocation().state as { orderId?: string } | null)?.orderId ?? null
+  const [selectedId, setSelectedId] = useState<string | null>(cameFrom)
   const [filter, setFilter] = useState<'all' | OrderType>('all')
   const [error, setError] = useState<string | null>(null)
   const [settling, setSettling] = useState(false)
@@ -70,7 +74,12 @@ export function Billing() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 20, height: '100%', minHeight: 0 }}>
       <section className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
-        <h2>Open Orders</h2>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <h2>Open Orders</h2>
+          <span style={{ marginLeft: 'auto' }}>
+            <Button variant="primary" onClick={() => navigate('/order/new')}>+ New order</Button>
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {(['all', 'dine_in', 'takeaway', 'car', 'delivery'] as const).map((f) => (
             <button
@@ -139,6 +148,14 @@ export function Billing() {
               </span>
             </div>
 
+            {selected.customerName || selected.phoneSnapshot || selected.vehicleNo ? (
+              <div className="muted" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: -8 }}>
+                {selected.customerName ? <span>{selected.customerName}</span> : null}
+                {selected.phoneSnapshot ? <span>{selected.phoneSnapshot}</span> : null}
+                {selected.vehicleNo ? <span>Car {selected.vehicleNo}</span> : null}
+                {selected.type === 'delivery' && selected.addressSnapshot ? <span>{selected.addressSnapshot}</span> : null}
+              </div>
+            ) : null}
             {error ? <Banner tone="danger">{error}</Banner> : null}
             {selected.reprintCount > 0 ? (
               <Banner tone="warning">
@@ -169,7 +186,9 @@ export function Billing() {
                         {l.note ? <div className="faint" style={{ fontSize: 13 }}>{l.note}</div> : null}
                       </td>
                       <td style={{ ...td, textAlign: 'right' }}>{l.qty}</td>
-                      <td style={{ ...td }} className="money">{money(l.qty * l.unitPriceSnapshot)}</td>
+                      <td style={{ ...td }} className="money">
+                        {money(l.qty * (l.unitPriceSnapshot + l.modifiers.reduce((sum, m) => sum + m.priceDelta, 0)))}
+                      </td>
                       <td style={{ ...td, textAlign: 'right' }}>
                         <Button variant="ghost" onClick={() => setVoiding({ lineId: l.id })}>Void</Button>
                       </td>
@@ -192,6 +211,7 @@ export function Billing() {
             </div>
 
             <div style={{ display: 'flex', gap: 12 }}>
+              <Button onClick={() => navigate(`/order/${selected.id}`)}>Add items</Button>
               <Button onClick={() => setDiscounting(true)}>Discount</Button>
               <Button variant="danger" onClick={() => setVoiding({})}>Void order</Button>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>

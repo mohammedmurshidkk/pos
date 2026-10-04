@@ -1,0 +1,24 @@
+{
+  "productName": "Zentivo POS",
+  "shortName": "Zentivo",
+  "vendor": "Zentivo",
+  "description": "Restaurant POS: counter, kitchen printing and waiter tablets on the shop's own network",
+
+  "colors": {
+    "primary": "#4F46E5",
+    "primaryDark": "#4338CA",
+    "primaryLight": "#6366F1",
+    "splashBackground": "#0B1220"
+  },
+
+  "installerFileName": "ZentivoPOS-Setup",
+  "dataFolder": "Zentivo POS",
+  "legacyDataFolders": ["Al Manzil POS"],
+  "vendorKeyFolder": ".zentivo-pos",
+  "legacyVendorKeyFolders": [".almanzil-pos"],
+
+  "ids": {
+    "appId": "com.zentivo.pos",
+    "androidPackage": "com.zentivo.pos"
+  }
+}

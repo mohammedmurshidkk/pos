@@ -223,6 +223,8 @@ export const settings = sqliteTable('settings', {
   requirePinOnAction: integer('require_pin_on_action', { mode: 'boolean' }).notNull().default(false),
 
   lastBackupAt: integer('last_backup_at', { mode: 'timestamp_ms' }),
+  /** Where backups go. Null means the default next to the database (or POS_BACKUP_DIR). */
+  backupDir: text('backup_dir'),
 
   /**
    * Licence state. The install id is what a licence is signed against. It lives
@@ -303,6 +305,8 @@ export const orders = sqliteTable(
     /** Snapshotted — a later address edit must not rewrite past deliveries. */
     addressSnapshot: text('address_snapshot'),
     phoneSnapshot: text('phone_snapshot'),
+    /** Name as given for this order (takeaway, car, delivery, or asked at settle). */
+    customerName: text('customer_name'),
     vehicleNo: text('vehicle_no'),
     bayNo: text('bay_no'),
 
@@ -430,7 +434,8 @@ export const printJobs = sqliteTable(
     /** 'invoice' is historical: the bill is the tax invoice now. 'drawer' pops the cash drawer, no paper. */
     kind: text('kind', { enum: ['kot', 'invoice', 'bill', 'void', 'report', 'test', 'drawer'] }).notNull(),
     payloadJson: text('payload_json').notNull(),
-    status: text('status', { enum: ['pending', 'printing', 'done', 'failed'] }).notNull().default('pending'),
+    /** 'discarded': a cashier gave up on it (paper already handed over, printer gone). Never retried automatically. */
+    status: text('status', { enum: ['pending', 'printing', 'done', 'failed', 'discarded'] }).notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
     refId: text('ref_id'),

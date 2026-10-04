@@ -1,4 +1,7 @@
-import type { Bootstrap, Device, LicenceStatus, MenuImportPlan, MenuImportRow, Order, PrintJob, Printer, Settings, SettingsPatch, ZReport } from './types'
+import type {
+  BackupStatus, Bootstrap, ClosedOrder, Customer, Device, Expense, ExpenseCategory, LicenceStatus, MenuImportPlan, MenuImportRow,
+  Order, PrintJob, Printer, RangeQuery, RangeResult, Settings, SettingsPatch, SubmitOrder, ZReport,
+} from './types'
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) {
@@ -24,6 +27,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(message, code, res.status)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+const rangeParams = (r: RangeQuery, extra: Record<string, string | undefined> = {}) => {
+  const p = new URLSearchParams({ preset: r.preset })
+  if (r.from) p.set('from', r.from)
+  if (r.to) p.set('to', r.to)
+  for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v)
+  return p.toString()
 }
 
 const post = <T>(path: string, body?: unknown) =>
@@ -92,6 +103,12 @@ export const api = {
   bootstrap: () => request<Bootstrap>('/api/bootstrap'),
   openOrders: () => request<Order[]>('/api/orders/open'),
   order: (id: string) => request<Order>(`/api/orders/${id}`),
+  closedOrders: (range: RangeQuery) =>
+    request<{ range: RangeResult; orders: ClosedOrder[] }>(`/api/orders/closed?${rangeParams(range)}`),
+
+  /** Create (or add a round to) an order and send it to the kitchen, in one idempotent call. */
+  submitOrder: (body: SubmitOrder) =>
+    post<{ order: Order | null; duplicate: boolean }>('/api/orders/submit', body),
 
   addItems: (orderId: string, lines: { itemId: string; qty: number; note?: string | null }[], employeeId: string) =>
     post<Order>(`/api/orders/${orderId}/items`, { lines, employeeId }),
@@ -113,9 +130,14 @@ export const api = {
   settle: (orderId: string, body: {
     payments: { paymentModeId: string; amount: number; refNo?: string | null }[]
     employeeId: string; counterId: string
+    customer?: { name?: string | null; phone?: string | null } | null
   }) => post<{ settled: boolean; paid: number; changeDue?: number; balanceDue?: number; invoiceNo?: number | null; printed?: boolean }>(
     `/api/orders/${orderId}/settle`, body,
   ),
+
+  /** `customer` is null when this number has never ordered. */
+  lookupCustomer: (phone: string) =>
+    request<{ customer: Customer | null }>(`/api/customers/lookup?phone=${encodeURIComponent(phone)}`),
 
   voidLine: (orderId: string, lineId: string, reason: string, employeeId: string) =>
     post<unknown>(`/api/orders/${orderId}/items/${lineId}/void`, { reason, employeeId }),
@@ -125,8 +147,17 @@ export const api = {
 
   printers: () => request<Printer[]>('/api/printers'),
   testPrint: (id: string) => post<unknown>(`/api/printers/${id}/test`),
-  printJobs: () => request<PrintJob[]>('/api/print-jobs'),
   retryJobs: (printerId?: string) => post<{ retried: number }>('/api/print-jobs/retry', { printerId }),
+  printJobs: (status: 'problems' | 'all' = 'problems') =>
+    request<{ jobs: PrintJob[]; counts: Record<string, { pending: number; failed: number }> }>(`/api/print-jobs?status=${status}`),
+  retryJob: (id: string, employeeId: string) => post<{ id: string }>(`/api/print-jobs/${id}/retry`, { employeeId }),
+  discardJob: (id: string, employeeId: string) => post<{ id: string }>(`/api/print-jobs/${id}/discard`, { employeeId }),
+
+  backups: () => request<BackupStatus>('/api/backups'),
+  backupNow: (employeeId: string) =>
+    post<{ path: string; bytes: number; pruned: string[]; status: BackupStatus }>('/api/backups', { employeeId }),
+  setBackupFolder: (dir: string | null, employeeId: string) =>
+    request<BackupStatus>('/api/backups/folder', { method: 'PUT', body: JSON.stringify({ dir, employeeId }) }),
 
   currentShift: (counterId: string) =>
     request<{ shiftId: string | null; open: boolean; canOpen: boolean }>(`/api/shifts/current?counterId=${counterId}`),
@@ -134,7 +165,15 @@ export const api = {
     post<{ id: string }>('/api/shifts/open', body),
   zReport: (shiftId: string) => request<ZReport>(`/api/shifts/${shiftId}/z-report`),
   closeShift: (shiftId: string, body: { countedCash: number; employeeId: string }) =>
-    post<{ report: ZReport; backupPath: string | null }>(`/api/shifts/${shiftId}/close`, body),
+    post<{ report: ZReport; backupPath: string | null; backupError?: string | null }>(`/api/shifts/${shiftId}/close`, body),
+
+  expenses: (range: RangeQuery, categoryId?: string) =>
+    request<{ range: RangeResult; expenses: Expense[] }>(`/api/expenses?${rangeParams(range, { categoryId })}`),
+  expenseCategories: () => request<ExpenseCategory[]>('/api/masters/expenseCategories'),
+  createExpense: (body: {
+    expenseCategoryId: string; amount: number; note: string | null
+    paidBy: string; counterId: string | null; paidFromDrawer: boolean
+  }) => post<{ id: string }>('/api/expenses', body),
 
   licence: () => request<LicenceStatus>('/api/licence'),
   installLicence: (key: string, employeeId: string) =>
@@ -165,12 +204,23 @@ export const api = {
     request<{ deactivated: boolean }>(
       `/api/masters/${entity}/${id}?employeeId=${employeeId}`, { method: 'DELETE' },
     ),
+  itemModifierGroups: (itemId: string) =>
+    request<{ groupIds: string[] }>(`/api/masters/items/${itemId}/modifier-groups`),
+  setItemModifierGroups: (itemId: string, groupIds: string[], employeeId: string) =>
+    request<{ groupIds: string[] }>(`/api/masters/items/${itemId}/modifier-groups`, {
+      method: 'PUT', body: JSON.stringify({ groupIds, employeeId }),
+    }),
   bulkTables: (body: { areaId: string; prefix: string; from: number; to: number; seats: number }, employeeId: string) =>
     post<{ added: number; skipped: number }>('/api/masters/tables/bulk', { ...body, employeeId }),
   importMenu: (rows: MenuImportRow[], dryRun: boolean, employeeId: string) =>
     post<MenuImportPlan>('/api/masters/menu/import', { rows, dryRun, employeeId }),
   updateSettings: (body: SettingsPatch, employeeId: string) =>
     request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify({ ...body, employeeId }) }),
+
+  /** A report over any range; the same URL with format=csv is the download. */
+  reportRange: <T>(kind: string, range: RangeQuery) =>
+    request<{ range: { label: string; from: string; to: string }; data: T }>(`/api/reports/${kind}?${rangeParams(range)}`),
+  reportCsvUrl: (kind: string, range: RangeQuery) => `/api/reports/${kind}?${rangeParams(range, { format: 'csv' })}`,
 
   report: <T>(kind: string, params: Record<string, string> = {}) =>
     request<{ range: { label: string }; data: T }>(

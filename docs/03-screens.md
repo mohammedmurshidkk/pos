@@ -33,6 +33,11 @@ The owner's 5-second answer to "how are we doing today?"
 - Printer health strip · last backup timestamp
 - **States:** normal · no sales yet today · printer offline warning
 
+> **Update 2026-10-04 (3):** **Printer health and last-backup strip built**, above the stat tiles.
+> - **Printers** card: every printer with its online dot, plus "N failed" / "N waiting" tickets per printer. Red edge when a printer is offline or a ticket failed; clicking it opens the print queue (A21)
+> - **Last backup** card: "12 min ago", or **Overdue** (nothing in 24 h) / **Failed** with an amber or red edge; clicking it opens Settings → Backup
+> - The four stat tiles stay as they were (Sales, Average ticket, VAT, Discounts), not the four in the list above
+
 ## A03 · Orders / Billing — P0 · **most important screen**
 Where the cashier lives. Two panes.
 - **Left:** open orders list, filter chips by order type, search by table/invoice/phone
@@ -54,10 +59,21 @@ Where the cashier lives. Two panes.
 - Refused with a clear message if no shift is open on this counter
 - **States:** single tender · split tender · overpay (shows change) · underpay
 
+> **Update 2026-10-04:** **No "Add payment" step.** The amount on screen counts straight away: pick a mode, tap Exact or a cash chip (or leave the amount empty for the full total), then Settle. The old **Add payment** button is now **+ Split payment**, used only for part-cash part-card. A cash overpay still records only the bill amount and shows the change.
+
+> **Update 2026-10-04 (2):** **Name and phone are asked at settle**, for every order type. Phone and Name sit at the top of the dialog, both optional, prefilled from the order when it already has them (takeaway, car, delivery). A known number fills the name ("Returning customer · 3 orders"). On Settle the hub saves the customer (unique by phone) and links the order, so the name and phone print on the bill. A number under 5 digits is refused with a message.
+
 ## A05 · Floor view — P1
 Area tabs → table grid, same visual language as the waiter app so support can talk staff through it.
 - Tile: table name, status colour + label, order count badge, elapsed, total
 - **States:** free · occupied · bill printed · multiple orders
+
+> **Update 2026-10-04 (2):** **Built** as sidebar **Floor** (`admin/src/screens/Floor.tsx`).
+> - Area chips show how many tables are busy in each; the header counts Free / Occupied / Bill printed across all areas
+> - Tile: table name, seats, order-count badge when more than one party, time since the oldest order, combined total, status word. A table is **Bill printed** only when every order on it has had its bill printed
+> - Free table → new dine-in order with that table already picked. Occupied table → a sheet listing its orders (open one in Billing) and **+ New order on this table**, as on the tablet
+> - Right column: open takeaway, car and delivery orders (named by vehicle, customer or phone), with Takeaway / Car / Delivery buttons to start one
+> - Refreshes every 5 seconds, like Billing
 
 ## A-SETUP · Setup (masters) — P0 · **built, replaces A06–A09 and A11–A15**
 One generic screen for twelve masters: printers, kitchens, counters, categories, items, modifier groups, modifiers, areas, tables, employees, payment modes, expense categories.
@@ -70,25 +86,67 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 - Employees: setting a PIN here hashes it; the PIN never reaches the database or the audit log in the clear
 - **States:** list · empty · create · edit · guard refusal
 
+> **Update 2026-10-04:** - **Items → "Asks for (modifier groups)"** built: tick the groups an item asks for on the tablet and counter (`PUT /api/masters/items/:id/modifier-groups`, replaces the whole set, audited). Before this only the demo seed could link a group to an item.
+> - **Then hidden the same day:** the **Modifier groups** and **Modifiers** entries and the item form's "Asks for" section are **commented out** in `admin/src/masters/config.ts` and `admin/src/screens/Masters.tsx`. Uncomment to bring them back. The API, tablet modifier sheet and counter modifier modal are unchanged. Menu CSV import never touched modifiers and still works.
+> - **Setup → Printers** now also has **Test print** per row and **Retry failed prints** in the header (moved from A10, below).
+
 ## A10 · Printers — P0 · **support-critical**
 - List: name, IP:port, width, live status dot, pending job count
 - Row actions: **Test Print** · Edit · Disable
 - Form: name, IP, port (default 9100), paper width 58/80, enabled
 - **States:** online · offline · jobs pending · never tested
 
+> **Update 2026-10-04:** **Removed as a separate screen.** It duplicated Setup → Printers, so the sidebar entry, route and `screens/Printers.tsx` are gone. What only it had moved to Setup → Printers: **Test print** on each enabled printer, and **Retry failed prints** (requeues tickets that gave up after 5 tries, `POST /api/print-jobs/retry`). Live online/offline status stays in the header printer strip.
+
 ## A16 · Expenses — P0
 - List: date, category, amount, note, paid by, **paid from drawer** flag
 - Add form — `paid from drawer` defaults ON during an open shift (this is what makes the Z-report variance correct)
 - Filter by date range and category
 
+> **Update 2026-10-04:** **Built.**
+> - Sidebar **Expenses**. List: when, category, note, paid by, source (Drawer / Other), amount; footer totals for "from drawer" and all
+> - Filters: Today / Yesterday / This week / This month / Pick a day, and category (`GET /api/expenses?preset=…&categoryId=…`, which until today ignored the range)
+> - **Add expense** modal: category, amount, note. "Paid from the cash drawer" is on while this counter has an open shift, off and locked when none is
+> - Also opened from **Shift → Pay out**, so a mid-shift payout updates the expected drawer straight away
+> - Counter PC only: `/api/expenses` is not a tablet route
+
+## A-BILLS · Closed bills — P0 · **new 2026-10-04, built**
+Billing lists open orders only, so a settled bill used to be unreachable.
+- Sidebar **Bills**. Range chips (same as Expenses), search by invoice, order no, table, label, phone or car; Settled / Cancelled
+- Read-only detail: lines with modifiers, payments with mode and ref, totals
+- **Reprint bill** for settled orders: same bill endpoint as a first print, never recalculated, same invoice number, `reprint_count` goes up
+- `GET /api/orders/closed?preset=…` — settled orders by `settled_at`, cancelled ones by `opened_at`
+
+## A-ORDER · Take an order at the counter — P0 · **new 2026-10-04, built**
+The fallback when a tablet breaks, and the normal path for walk-in takeaway. Opened from Billing: **+ New order**, or **Add items** on the selected order.
+- Three columns: order details (type, table grid with open-order badges, label, car or delivery fields, waiter) · menu (category chips + search) · cart (qty, note, remove)
+- Items with modifier groups open a modal with the same min/max rules as the tablet
+- Sends exactly what the tablet sends: one idempotent `POST /api/orders/submit` with a fresh `batchRef`, so KOT routing, licence checks and audit are the same code path
+- The signed-in cashier is `created_by`; the chosen waiter gets the sales credit (`waiter_id`, set right after the first send)
+- **Save without KOT** only for someone with `can_save_without_kot`
+
 ## A17 · Customers — P1
 Search by phone. Detail: name, phone, addresses, order history. Created automatically from delivery orders.
+
+> **Update 2026-10-04 (2):** **Customers are saved, unique by phone; the lookup is built, the screen is not** (CRM comes later).
+> - Numbers are stored as digits only, so "050 123 4567" and "050-1234567" are one customer. Country codes are not guessed: "0501234567" and "971501234567" stay two
+> - Saved automatically from any order that carries a phone (takeaway, car, delivery, or asked at settle). A new name replaces the stored one; a blank never wipes it. Delivery addresses are kept once each, newest first
+> - `GET /api/customers/lookup?phone=` (tablet allowed) returns name, saved addresses, order count; `GET /api/customers?q=` searches by part of a number or name (counter only, for the future CRM screen)
+> - Orders keep their own `customer_name` and `phone_snapshot`, so editing a customer later never rewrites old bills
 
 ## A18 · Reports — P0
 Hub with date-range picker (Today / Yesterday / This week / This month / Custom) and export CSV.
 - Daily sales summary · Item-wise · Category-wise · Employee-wise · Payment-mode-wise · Order-type-wise · Discounts & voids · Tax summary
 - Every money column tabular + right-aligned; every report shows the range and generated-at timestamp in the header
 - **States:** loading skeleton · empty range · results
+
+> **Update 2026-10-04 (3):** **Built**, sidebar **Reports** (after Dashboard).
+> - Range chips Today / Yesterday / This week / This month / Pick a day (one calendar day), the same picker as Expenses and Bills
+> - Tabs: Summary · Items · Categories · Staff · Payments · Order types · Discounts & voids · Tax. Tables have a totals row (averages are not summed)
+> - Summary shows how the total adds up: gross − discounts (+ service) = total = net + VAT
+> - Header shows the range and "As of HH:MM"; **Refresh**; **Download CSV** for the open tab (`GET /api/reports/:kind?…&format=csv`)
+> - **Discounts & voids CSV** is now one sheet with a `kind` column (`discount` / `void`); it used to come out as a single row of JSON. CSV headers now include columns that only later rows have
+> - Only settled bills count (revenue is recognised at settle). Voids count by when the void happened
 
 ## A19 · Shift open / close — P0
 - **Open:** counter select, opening float, confirm
@@ -99,10 +157,24 @@ Hub with date-range picker (Today / Yesterday / This week / This month / Custom)
 ## A20 · Settings — P0
 Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of spec §7) · Invoice (prefix, next number, reprint policy) · Backup (path, last run, Backup Now) · License (expiry, machine id) · Default kitchen.
 
+> **Update 2026-10-04 (3):** Settings now has two tabs, **General** (the existing form, unchanged) and **Backup** (built). `#/settings?tab=backup` opens it directly.
+> - **Last backup** ("just now", date and time) and **Backup now**
+> - Warning when nothing in 24 h, error banner with the reason when the last backup failed
+> - **Backup folder**: default is `backups` next to the database (on Windows `%APPDATA%/…/backups`). Any full path can be saved, e.g. `D:\POS Backups` or a USB stick; the hub creates it and test-writes a file first, and refuses a relative path or a folder it cannot write. **Use default folder** goes back
+> - List of the newest 10 backups with date and size, total count and size
+> - Text states the rule: a backup at every shift close, once a day if no shift closed, 30 days kept, newest always kept
+
 ## A21 · Print queue — P0 (slide-over panel)
 - Jobs: kind, printer, order/invoice ref, attempts, status, error
 - Actions: Retry · Retry all for printer · Discard
 - Opened from the header printer strip
+
+> **Update 2026-10-04 (3):** **Built** as a panel (modal) opened from the header printer strip or the Dashboard printers card.
+> - Header strip shows a red count per printer and "N failed" / "N waiting"; it stays visible while printer pings are still running if tickets have failed
+> - Filters **Needs attention** (failed, waiting, printing; failed first) and **Recent, all** (adds printed and discarded)
+> - Each job: status, kind (KOT / Bill / Void slip / Z report / Test page / Cash drawer), what it is (kitchen, invoice, order, table or car plate), printer, time, attempts, last error
+> - **Retry** (failed), **Print again** (discarded), **Discard** (waiting or failed; refused while printing). **Retry all failed** and **Check printers** in the header. Both actions are audited
+> - New job status `discarded`: never retried automatically. "Retry all for printer" is not a separate button; the API still takes a `printerId`
 
 ## A22 · Devices (pairing) — P0 · **built**
 - **Pair a tablet** shows the hub's LAN address (and alternates, if the PC has several) with a large **6-digit code** and a live countdown
@@ -189,6 +261,8 @@ Shown after choosing a non-dine-in type.
 - **Delivery:** phone first → if known, autofills name + saved addresses; else name + address form
 - **States:** new customer · existing customer found · validation error
 
+> **Update 2026-10-04 (2):** Phone first on all three. **Takeaway** and **Car** now also have optional phone and name; **Delivery** needs phone and address. A known number fills the name ("Returning customer · 2 orders") and, for delivery, the last address, with the other saved addresses as chips. The lookup needs the counter; offline the waiter just types. The takeaway name, which was captured but never sent, now reaches the hub and prints on the KOT. The same fields are on the counter's **+ New order** screen.
+
 ## W06 · Menu & cart — P0 · **most used screen**
 Landscape tablet: category rail left (25%), item grid centre (50%), cart right (25%). Phone: categories as top chips, cart as a bottom sheet with badge.
 - Item tile: name, price, greyed + `Unavailable` when off
@@ -198,6 +272,8 @@ Landscape tablet: category rail left (25%), item grid centre (50%), cart right (
 - Sent lines are read-only. No void control anywhere on the tablet.
 - Footer: item count, total, `Send to Kitchen` (full width, primary)
 - **States:** empty cart · items in cart · unsent and sent lines visually separated · offline banner
+
+> **Update 2026-10-04:** Cart lines now have **+ Note** / **Edit note** (with the quick-note chips and Remove note). Before this a note could only be added by long-pressing an item before adding it. On a phone the cart sheet closes first so two sheets don't stack. Editing a note to match another line merges the two.
 
 ## W07 · Modifier & note sheet — P1
 Bottom sheet on item tap when the item has modifier groups. Group title, min/max hint, options with price deltas, free-text note field, qty, `Add to Order`.

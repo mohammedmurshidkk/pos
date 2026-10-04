@@ -3,6 +3,7 @@ import { ApiError, api } from '../api/client'
 import type { Order } from '../api/types'
 import { useStore } from '../store'
 import { Banner, Button, Field, Modal, inputStyle } from '../components/ui'
+import { CustomerFields } from '../components/CustomerFields'
 
 interface Tender { paymentModeId: string; amount: number; refNo?: string | null }
 
@@ -24,6 +25,10 @@ export function Settle({ order, onClose, onSettled }: {
   const [amount, setAmount] = useState('')
   const [refNo, setRefNo] = useState('')
   const [tenders, setTenders] = useState<Tender[]>([])
+  // Asked at the till for every order type. Optional: a customer who would
+  // rather not say still gets served. Saved by phone for CRM later.
+  const [phone, setPhone] = useState(order.phoneSnapshot ?? '')
+  const [name, setName] = useState(order.customerName ?? '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -31,9 +36,21 @@ export function Settle({ order, onClose, onSettled }: {
   const decimals = data?.settings.currencyDecimals ?? 2
   const toMinor = (v: string) => Math.round(Number(v || 0) * 10 ** decimals)
 
-  const taken = useMemo(() => tenders.reduce((a, t) => a + t.amount, 0), [tenders])
+  const added = useMemo(() => tenders.reduce((a, t) => a + t.amount, 0), [tenders])
+  const remaining = Math.max(0, order.total - added)
+
+  // What is on screen counts without an "Add payment" tap. The common case —
+  // one mode, exact or a cash chip — is pick, settle. An empty amount means
+  // "the rest of it". "+ Split" is only for part-cash part-card.
+  const typed = amount.trim() === '' ? remaining : toMinor(amount)
+  const pending: Tender | null = typed > 0
+    ? { paymentModeId: modeId, amount: typed, refNo: refNo.trim() || null }
+    : null
+  const all = pending ? [...tenders, pending] : tenders
+  const taken = all.reduce((a, t) => a + t.amount, 0)
   const due = Math.max(0, order.total - taken)
   const change = Math.max(0, taken - order.total)
+  const needsRef = pending != null && mode?.requiresRef && !refNo.trim()
 
   const addTender = () => {
     const minor = toMinor(amount)
@@ -47,10 +64,12 @@ export function Settle({ order, onClose, onSettled }: {
 
   const settle = async () => {
     if (!operator || !counterId) return setError('Sign in at the counter first.')
+    if (needsRef) return setError(`${mode?.name} needs an approval or reference number.`)
     setBusy(true)
     setError(null)
     try {
-      await api.settle(order.id, { payments: tenders, employeeId: operator.id, counterId })
+      const customer = phone.trim() || name.trim() ? { phone: phone.trim() || null, name: name.trim() || null } : null
+      await api.settle(order.id, { payments: all, employeeId: operator.id, counterId, customer })
       onSettled()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
@@ -69,6 +88,8 @@ export function Settle({ order, onClose, onSettled }: {
       </div>
 
       {error ? <Banner tone="danger">{error}</Banner> : null}
+
+      <CustomerFields row phone={phone} name={name} onPhone={setPhone} onName={setName} />
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(modes.length, 4)}, 1fr)`, gap: 12 }}>
         {modes.map((m) => (
@@ -95,7 +116,7 @@ export function Settle({ order, onClose, onSettled }: {
             value={amount}
             inputMode="decimal"
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={(due / 10 ** decimals).toFixed(decimals)}
+            placeholder={(remaining / 10 ** decimals).toFixed(decimals)}
           />
         </Field>
         {mode?.requiresRef ? (
@@ -106,11 +127,11 @@ export function Settle({ order, onClose, onSettled }: {
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <Button onClick={() => setAmount((due / 10 ** decimals).toFixed(decimals))}>Exact</Button>
+        <Button onClick={() => setAmount((remaining / 10 ** decimals).toFixed(decimals))}>Exact</Button>
         {[50, 100, 200, 500].map((v) => (
           <Button key={v} onClick={() => setAmount(String(v))}>{v}</Button>
         ))}
-        <Button variant="primary" onClick={addTender} style={{ marginLeft: 'auto' }}>Add payment</Button>
+        <Button variant="ghost" onClick={addTender} style={{ marginLeft: 'auto' }}>+ Split payment</Button>
       </div>
 
       {tenders.length > 0 ? (
@@ -139,7 +160,7 @@ export function Settle({ order, onClose, onSettled }: {
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={busy || taken < order.total} onClick={() => void settle()}>
+        <Button variant="primary" disabled={busy || taken < order.total || needsRef} onClick={() => void settle()}>
           {/* The printed bill is the tax invoice. Settling prints only if the
               customer has no bill yet, or theirs is out of date. */}
           {busy ? 'Settling…'

@@ -1,7 +1,6 @@
 {
   "name": "@pos/desktop",
   "version": "0.3.2",
-  "productName": "Al Manzil POS",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
@@ -29,45 +28,5 @@
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
   },
-  "build": {
-    "appId": "com.almanzil.pos",
-    "productName": "Al Manzil POS",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "**/node_modules/better-sqlite3/**"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "AlManzilPOS-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": true,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "include": "installer/installer.nsh"
-    },
-    "mac": {
-      "target": [
-        "dir"
-      ]
-    },
-    "npmRebuild": false,
-    "electronVersion": "33.4.11"
-  },
-  "description": "Restaurant POS hub \u2014 server, cashier UI and printing in one app",
-  "author": "Al Manzil POS"
+  "description": "Restaurant POS hub — server, cashier UI and printing in one app"
 }

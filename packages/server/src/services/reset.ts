@@ -1,8 +1,8 @@
-import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { schema } from '@pos/shared'
 import { audit } from '../audit.js'
-import { backupTo, db, raw } from '../db.js'
+import { db, raw } from '../db.js'
+import { runBackup } from './backups.js'
 import { conflict, notFound } from '../errors.js'
 
 const s = schema
@@ -147,12 +147,7 @@ const FULL_ORDER = [
 /** A copy of the database before anything is deleted. Cheap insurance. */
 function backupBeforeClearing(what: string): string | null {
   try {
-    const dbFile = process.env.POS_DB ?? './pos.db'
-    const dir = process.env.POS_BACKUP_DIR ?? path.dirname(path.resolve(dbFile))
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const file = path.join(dir, `before-clear-${what}-${stamp}.db`)
-    backupTo(file)
-    return file
+    return runBackup('before_clear', { label: what }).path
   } catch {
     // A missing backup folder must not stop a deliberate reset.
     return null

@@ -3,6 +3,7 @@ import { ApiError, api } from '../api/client'
 import type { ZReport } from '../api/types'
 import { Banner, Button, EmptyState, Field, inputStyle } from '../components/ui'
 import { useStore } from '../store'
+import { ExpenseModal } from './Expenses'
 
 /**
  * A19 — shift open and close.
@@ -19,6 +20,7 @@ export function Shift() {
   const [counted, setCounted] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [payingOut, setPayingOut] = useState(false)
 
   const decimals = data?.settings.currencyDecimals ?? 2
   const toMinor = (v: string) => Math.round(Number(v || 0) * 10 ** decimals)
@@ -117,7 +119,10 @@ export function Shift() {
           <h2>Cash reconciliation</h2>
           <Line label="Opening float" value={money(report.cash.openingFloat)} />
           <Line label="+ Cash sales" value={money(report.cash.cashSales)} />
-          <Line label="− Expenses from drawer" value={money(report.cash.drawerExpenses)} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ flex: 1 }}><Line label="− Expenses from drawer" value={money(report.cash.drawerExpenses)} /></span>
+            <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setPayingOut(true)}>Pay out</Button>
+          </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
             <Line label="Expected in drawer" value={money(report.cash.expected)} bold />
           </div>
@@ -163,7 +168,9 @@ export function Shift() {
             if (!guard()) return
             try {
               const res = await api.closeShift(shiftId, { countedCash: toMinor(counted), employeeId: operator!.id })
-              setDone(res.backupPath ? `Shift closed. Backup written.` : 'Shift closed.')
+              setDone(res.backupPath
+                ? 'Shift closed. Backup written.'
+                : `Shift closed, but the backup failed. Check Settings → Backup.${res.backupError ? ` (${res.backupError})` : ''}`)
               setCounted('')
               await refresh()
             } catch (e) {
@@ -174,6 +181,10 @@ export function Shift() {
           </Button>
         </div>
       </div>
+
+      {payingOut ? (
+        <ExpenseModal onClose={() => setPayingOut(false)} onSaved={() => { setPayingOut(false); void refresh() }} />
+      ) : null}
     </div>
   )
 }

@@ -59,11 +59,14 @@ export default function Review() {
       orderId: draft.orderId,
       type: draft.type,
       tableId: draft.tableId,
-      ticketLabel: draft.ticketLabel,
+      // Takeaway and delivery have no table: the kitchen calls out the name.
+      ticketLabel: draft.ticketLabel
+        ?? (draft.type === 'takeaway' || draft.type === 'delivery' ? draft.customerName : null),
       vehicleNo: draft.vehicleNo,
       bayNo: draft.bayNo,
       phoneSnapshot: draft.phone,
       addressSnapshot: draft.address,
+      customerName: draft.customerName,
       lines: draft.lines.map((l) => ({
         itemId: l.itemId, qty: l.qty, note: l.note, modifiers: l.modifiers,
       })),

@@ -1,3 +1,4 @@
+import Constants from 'expo-constants'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
@@ -90,7 +91,7 @@ export default function Home() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Text variant="heading">{data?.settings.businessName ?? 'POS'}</Text>
+        <Text variant="heading">{data?.settings.businessName ?? Constants.expoConfig?.name ?? 'POS'}</Text>
         <View style={styles.statusRow}>
           <View style={[styles.dot, { backgroundColor: offline ? color.danger : color.success }]} />
           <Text variant="caption" muted>{offline ? 'Reconnecting…' : 'Connected'}</Text>

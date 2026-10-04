@@ -10,7 +10,7 @@ import { QtyStepper } from '../src/components/QtyStepper'
 import { Screen } from '../src/components/Screen'
 import { Sheet } from '../src/components/Sheet'
 import { Text } from '../src/components/Text'
-import { useCart } from '../src/store/cart'
+import { useCart, type CartLine } from '../src/store/cart'
 import { useCatalog } from '../src/store/catalog'
 import { tileWidth, useLayout } from '../src/theme/layout'
 import { color, orderTypeColor, orderTypeLabel, radius, space, touch } from '../src/theme/tokens'
@@ -28,7 +28,7 @@ export default function Menu() {
   const itemsIn = useCatalog((s) => s.itemsIn)
   const groupsForItem = useCatalog((s) => s.groupsForItem)
   const modifiersIn = useCatalog((s) => s.modifiersIn)
-  const { draft, add, setQty, subtotal, count } = useCart()
+  const { draft, add, setQty, setNote, subtotal, count } = useCart()
 
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -36,6 +36,10 @@ export default function Menu() {
   const [noteText, setNoteText] = useState('')
   const [noteQty, setNoteQty] = useState(1)
   const [modifierFor, setModifierFor] = useState<Item | null>(null)
+  // A line already in the cart whose note is being edited. Long-press only
+  // works before an item is added; this is the way back to it afterwards.
+  const [lineNote, setLineNote] = useState<CartLine | null>(null)
+  const [lineNoteText, setLineNoteText] = useState('')
   const [cartOpen, setCartOpen] = useState(false)
   const layout = useLayout()
 
@@ -70,6 +74,18 @@ export default function Menu() {
     setNoteFor(item)
     setNoteText('')
     setNoteQty(1)
+  }
+
+  const openLineNote = (line: CartLine) => {
+    // On a phone the cart is itself a sheet; close it so the two don't stack.
+    setCartOpen(false)
+    setLineNote(line)
+    setLineNoteText(line.note ?? '')
+  }
+
+  const saveLineNote = () => {
+    if (lineNote) setNote(lineNote.key, lineNoteText.trim() || null)
+    setLineNote(null)
   }
 
   const confirmNote = () => {
@@ -163,7 +179,7 @@ export default function Menu() {
           <View style={styles.cart}>
             <Text variant="heading">Current Order</Text>
             <Text variant="caption" muted>{count()} items</Text>
-            <CartPanel lines={draft.lines} money={money} onQty={setQty} />
+            <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} />
             <View style={styles.totals}>
               <Text variant="body" muted>Total</Text>
               <Text variant="moneyLarge">{money(subtotal())}</Text>
@@ -199,7 +215,7 @@ export default function Menu() {
         onClose={() => setCartOpen(false)}
         cancelLabel="Close"
       >
-        <CartPanel lines={draft.lines} money={money} onQty={setQty} />
+        <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} />
       </Sheet>
 
       <ModifierSheet
@@ -213,6 +229,37 @@ export default function Menu() {
         }}
         onClose={() => setModifierFor(null)}
       />
+
+      <Sheet
+        visible={lineNote != null}
+        title={lineNote?.name ?? ''}
+        subtitle={lineNote ? `Qty ${lineNote.qty}` : undefined}
+        onClose={() => setLineNote(null)}
+      >
+        <Text variant="label" muted>Note</Text>
+        <TextInput
+          value={lineNoteText}
+          onChangeText={setLineNoteText}
+          placeholder="no ice, less spicy…"
+          placeholderTextColor={color.textFaint}
+          multiline
+          autoFocus
+          style={styles.noteInput}
+        />
+        <View style={styles.noteRow}>
+          {['No ice', 'Less spicy', 'No onion', 'Extra hot'].map((q) => (
+            <Pressable key={q} onPress={() => setLineNoteText(q)} style={styles.quickNote}>
+              <Text variant="caption" muted>{q}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.noteFooter}>
+          {lineNote?.note ? (
+            <Button label="Remove note" variant="secondary" onPress={() => { setLineNoteText(''); if (lineNote) setNote(lineNote.key, null); setLineNote(null) }} />
+          ) : null}
+          <Button label="Save note" flex={1} onPress={saveLineNote} />
+        </View>
+      </Sheet>
 
       <Sheet
         visible={noteFor != null}

@@ -1,9 +1,9 @@
-import { and, count, eq } from 'drizzle-orm'
+import { and, count, eq, inArray } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { z } from 'zod'
 import { audit } from '../audit.js'
 import { hashPin } from './auth.js'
-import { db } from '../db.js'
+import { db, raw } from '../db.js'
 import { conflict, notFound } from '../errors.js'
 import { requireEmployee } from './employees.js'
 
@@ -217,6 +217,40 @@ export function createMaster(name: string, body: unknown, employeeId: string) {
   db.insert(e.table).values({ id, ...data }).run()
   audit(employeeId, 'master.create', name, id, data)
   return db.select().from(e.table).where(eq(e.table.id, id)).get()
+}
+
+/**
+ * Which modifier groups an item asks for, in the order they are asked.
+ *
+ * Without this link a group exists but no waiter is ever asked it — the
+ * tablet and the counter only open the modifier sheet for linked groups.
+ * Replaces the whole set: the item form always sends every ticked group.
+ */
+export function setItemModifierGroups(itemId: string, groupIds: string[], employeeId: string) {
+  requireEmployee(employeeId)
+  const item = db.select().from(s.items).where(eq(s.items.id, itemId)).get()
+  if (!item) throw notFound('item')
+  const ids = [...new Set(groupIds)]
+  if (ids.length > 0) {
+    const found = db.select({ id: s.modifierGroups.id }).from(s.modifierGroups)
+      .where(inArray(s.modifierGroups.id, ids)).all()
+    if (found.length !== ids.length) throw notFound('modifier group')
+  }
+  raw.transaction(() => {
+    db.delete(s.itemModifierGroups).where(eq(s.itemModifierGroups.itemId, itemId)).run()
+    if (ids.length > 0) {
+      db.insert(s.itemModifierGroups).values(ids.map((groupId, i) => ({ itemId, groupId, sort: i + 1 }))).run()
+    }
+  })()
+  audit(employeeId, 'master.item_modifier_groups', 'items', itemId, { groupIds: ids })
+  return listItemModifierGroups(itemId)
+}
+
+export function listItemModifierGroups(itemId: string) {
+  return db.select({ groupId: s.itemModifierGroups.groupId, sort: s.itemModifierGroups.sort })
+    .from(s.itemModifierGroups).where(eq(s.itemModifierGroups.itemId, itemId))
+    .orderBy(s.itemModifierGroups.sort).all()
+    .map((r) => r.groupId)
 }
 
 export function updateMaster(name: string, id: string, body: unknown, employeeId: string) {
