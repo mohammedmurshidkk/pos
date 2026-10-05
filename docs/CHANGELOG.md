@@ -3,6 +3,16 @@
 Newest first. The docs keep the old text with a dated **Update** block under it
 (see "Keeping the docs" in `CLAUDE.md`); this file is the index of those changes.
 
+## 2026-10-05
+
+| Area | Change | Where |
+|---|---|---|
+| Settle | **Cash needs an amount** typed or a chip (Exact, 50…) tapped; an empty amount no longer settles the full total in cash. Card/other modes unchanged | `admin/src/screens/Settle.tsx`, `docs/03-screens.md` A04 |
+| Shift close | Refused while **any** order is open or billed (any counter or tablet), naming the orders; empty orders don't block. Was: only billed orders on this counter | `server/src/services/shifts.ts`, `docs/03-screens.md` A19 |
+| Printers | **USB printers**: Connection Network / USB (this PC); RAW to the Windows spooler via PowerShell (CUPS `lp` on a Mac). New columns `printers.connection`, `printers.system_name` (migration `0011`); `GET /api/printers/system` | `server/src/printer-usb.ts`, `printer.ts`, `queue.ts`, `services/masters.ts`, `admin/src/masters/config.ts`, `Masters.tsx`, spec §4, §5, §6.5 |
+| Cash drawer | **Test drawer** per printer (`POST /api/printers/:id/drawer`, audited); drawer kick works over USB the same as the network | `server/src/services/print-jobs.ts`, `admin/src/screens/Masters.tsx` |
+| Tests | Server tests 263 → 275 (`shift.test.ts`, new `usb-printer.test.ts`) | `server/src/__tests__/` |
+
 ## 2026-10-04
 
 | Area | Change | Where |

@@ -98,7 +98,7 @@ export function MenuImport({ onClose, onDone }: { onClose: () => void; onDone: (
         isNew: !existing,
         kitchen: kitchen ? String(kitchen.name) : null,
         viaDefault,
-        printer: printer ? `${printer.name} · ${printer.ip}` : null,
+        printer: printer ? `${printer.name} · ${printer.connection === 'usb' ? `USB (${String(printer.systemName)})` : printer.ip}` : null,
         printerOff: printer ? printer.enabled === false : false,
       })
     }

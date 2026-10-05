@@ -1,8 +1,34 @@
 import net from 'node:net'
+import { sendUsb, usbStatus } from './printer-usb.js'
 
 export interface PrinterTarget {
   ip: string
   port: number
+}
+
+/** A printers row, as much of it as delivery needs. */
+export interface PrinterRow {
+  connection: 'network' | 'usb'
+  ip: string
+  port: number
+  systemName: string | null
+}
+
+/**
+ * Deliver one ticket, however this printer is attached. Everything above this
+ * — routing, templates, the queue's retries — is the same for both.
+ */
+export function deliver(p: PrinterRow, payload: Buffer): Promise<void> {
+  return p.connection === 'usb'
+    ? sendUsb(p.systemName ?? '', payload)
+    : sendToPrinter({ ip: p.ip, port: p.port }, payload)
+}
+
+/** Green or red for the top bar and Dashboard, plus why when Windows says. */
+export async function printerHealth(p: PrinterRow): Promise<{ online: boolean; detail: string | null }> {
+  if (p.connection === 'usb') return usbStatus(p.systemName ?? '')
+  const online = await pingPrinter({ ip: p.ip, port: p.port })
+  return { online, detail: online ? null : `No answer from ${p.ip}:${p.port}` }
 }
 
 /**

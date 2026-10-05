@@ -83,6 +83,9 @@ export interface TestPayload {
   printerName: string
   ip: string
   port: number
+  /** Absent on test jobs queued before USB printers existed. */
+  connection?: 'network' | 'usb'
+  systemName?: string | null
   at: string
 }
 
@@ -198,7 +201,7 @@ export function renderTest(p: TestPayload, widthMm: number): Buffer {
   r.big('TEST PRINT')
   r.rule('=')
   r.kv('Printer', p.printerName)
-  r.kv('Address', `${p.ip}:${p.port}`)
+  r.kv('Address', p.connection === 'usb' ? `USB - ${p.systemName ?? ''}` : `${p.ip}:${p.port}`)
   r.kv('Width', `${widthMm}mm / ${cols} cols`)
   r.kv('Time', p.at)
   r.rule('=')

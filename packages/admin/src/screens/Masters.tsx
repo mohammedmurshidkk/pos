@@ -7,6 +7,15 @@ import { MenuImport } from './MenuImport'
 
 type Lists = Record<string, Row[]>
 
+/** A `needs` entry is another master — except this one, the counter PC's own printer list. */
+async function loadList(name: string): Promise<Row[]> {
+  if (name !== 'systemPrinters') return api.masters<Row>(name)
+  // A PC with no printers installed (or no spooler) is not an error for Setup:
+  // the dropdown says so, and network printers still work.
+  const r = await api.systemPrinters().catch(() => ({ printers: [] as string[] }))
+  return r.printers.map((n) => ({ id: n, name: n }))
+}
+
 /**
  * One screen for every master.
  *
@@ -45,12 +54,13 @@ export function Masters() {
   const [importing, setImporting] = useState(false)
 
   const spec = specFor(entity)
+  const columns = useMemo(() => spec.fields.filter((f) => f.inTable !== false), [spec])
 
   const refresh = useCallback(async (target: MasterSpec) => {
     try {
       const [main, ...refs] = await Promise.all([
         api.masters<Row>(target.entity),
-        ...(target.needs ?? []).map((n) => api.masters<Row>(n)),
+        ...(target.needs ?? []).map(loadList),
       ])
       const next: Lists = {}
       ;(target.needs ?? []).forEach((n, i) => { next[n] = refs[i] ?? [] })
@@ -155,15 +165,15 @@ export function Masters() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {spec.fields.map((f) => (
-                  <th key={f.key} style={thStyle(f)}>{f.label}</th>
+                {columns.map((f) => (
+                  <th key={f.key} style={thStyle(f)}>{f.tableLabel ?? f.label}</th>
                 ))}
                 <th style={{ ...thStyle(), width: 150, textAlign: 'right' }} />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={spec.fields.length + 1}>
+                <tr><td colSpan={columns.length + 1}>
                   <EmptyState title={`No ${spec.title.toLowerCase()} yet`} hint="Add the first one above." />
                 </td></tr>
               ) : rows.map((row) => {
@@ -172,7 +182,7 @@ export function Masters() {
                   <tr key={row.id} style={{
                     height: 'var(--row-h)', borderTop: '1px solid var(--border)', opacity: off ? 0.5 : 1,
                   }}>
-                    {spec.fields.map((f) => (
+                    {columns.map((f) => (
                       <td key={f.key} style={tdStyle(f)}>{display(f, row, lists)}</td>
                     ))}
                     <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -181,6 +191,15 @@ export function Masters() {
                           await api.testPrint(row.id)
                           return `Test page sent to ${String(row.name)}.`
                         })}>Test print</Button>
+                      ) : null}
+                      {/* The drawer plugs into the printer, so it is checked from here —
+                          over the network or USB, the same kick a cash settle sends. */}
+                      {entity === 'printers' && !off ? (
+                        <Button variant="ghost" onClick={() => void runPrinterAction(async () => {
+                          if (!operator) throw new ApiError('Sign in at the counter first.', 'unauthorised', 0)
+                          await api.testDrawer(row.id, operator.id)
+                          return `Drawer kick sent to ${String(row.name)}. If the drawer stayed shut, check its cable is in the printer's DK port.`
+                        })}>Test drawer</Button>
                       ) : null}
                       <Button variant="ghost" onClick={() => setEditing(row)}>Edit</Button>
                       {!off ? (
@@ -229,6 +248,24 @@ export function Masters() {
 
 /* ─────────────────────────── rendering ─────────────────────────── */
 
+/**
+ * A select's options. A saved value missing from the list stays visible
+ * (a Windows printer since removed) rather than silently becoming the first.
+ */
+function optionsFor(f: Field, lists: Lists, current: unknown): { value: string; label: string; disabled?: boolean }[] {
+  if (f.kind !== 'select') return []
+  const out: { value: string; label: string; disabled?: boolean }[] = f.choices ?? (lists[f.from ?? ''] ?? []).map((r) => ({
+    value: r.id, label: String(r.name ?? r.id),
+  }))
+  if (current != null && current !== '' && !out.some((c) => String(c.value) === String(current))) {
+    out.unshift({ value: String(current), label: `${String(current)} (not found on this PC)` })
+  }
+  if (out.length === 0 && f.from === 'systemPrinters') {
+    out.push({ value: '', label: 'No printers installed in Windows', disabled: true })
+  }
+  return out
+}
+
 function labelFor(f: Field, row: Row, lists: Lists): string {
   const value = row[f.key]
   if (f.kind !== 'select') return String(value ?? '')
@@ -239,6 +276,9 @@ function labelFor(f: Field, row: Row, lists: Lists): string {
 
 function display(f: Field, row: Row, lists: Lists) {
   const value = row[f.key]
+  if (f.tableText) {
+    return <span className="muted" style={{ fontFamily: 'ui-monospace, monospace' }}>{f.tableText(row)}</span>
+  }
   if (f.kind === 'bool') {
     return value
       ? <Pill label="Yes" tone="success" />
@@ -341,10 +381,8 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
             ) : f.kind === 'select' ? (
               <select style={inputStyle} value={String(values[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value)}>
                 {f.nullable ? <option value="">— none —</option> : null}
-                {(f.choices ?? (lists[f.from ?? ''] ?? []).map((r) => ({
-                  value: r.id, label: String(r.name ?? r.id),
-                }))).map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
+                {optionsFor(f, lists, values[f.key]).map((c) => (
+                  <option key={c.value} value={c.value} disabled={c.disabled}>{c.label}</option>
                 ))}
               </select>
             ) : (

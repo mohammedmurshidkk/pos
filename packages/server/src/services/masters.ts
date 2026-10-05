@@ -24,8 +24,11 @@ const ipv4 = z.string().trim().regex(
 
 const printer = z.object({
   name,
-  ip: ipv4,
+  connection: z.enum(['network', 'usb']).default('network'),
+  // Checked against the connection in normalisePrinter: a USB printer has no IP.
+  ip: z.string().trim().nullable().optional(),
   port: z.number().int().min(1).max(65535).default(9100),
+  systemName: z.string().trim().max(200).nullable().optional(),
   /** 58mm ≈ 32 characters, 80mm ≈ 48. Drives the ESC/POS renderer. */
   width: z.union([z.literal(58), z.literal(80)]).default(80),
   enabled: z.boolean().default(true),
@@ -211,6 +214,25 @@ function normalisePaymentMode(data: Record<string, unknown>, before?: Record<str
   }
 }
 
+/**
+ * A printer is either on the network (an IP) or attached to this PC (a Windows
+ * printer name), never half of each. Checked on the merged row, so an edit that
+ * only renames a USB printer does not trip over its empty IP.
+ */
+function normalisePrinter(data: Record<string, unknown>, before?: Record<string, unknown>) {
+  const connection = (data.connection ?? before?.connection ?? 'network') as 'network' | 'usb'
+  if (connection === 'usb') {
+    const systemName = String(data.systemName ?? before?.systemName ?? '').trim()
+    if (!systemName) throw conflict('Choose the printer as Windows knows it.')
+    Object.assign(data, { connection, systemName, ip: '' })
+  } else {
+    const ip = String(data.ip ?? before?.ip ?? '')
+    const ok = ipv4.safeParse(ip)
+    if (!ok.success) throw conflict(ok.error.issues[0]?.message ?? 'Enter an IP address')
+    Object.assign(data, { connection, ip: ok.data, systemName: null })
+  }
+}
+
 function assertNameFree(e: Entry, name: unknown, excludeId?: string) {
   if (!e.uniqueName || typeof name !== 'string') return
   const rows = db.select().from(e.table).all() as Row[]
@@ -230,6 +252,7 @@ export function createMaster(name: string, body: unknown, employeeId: string) {
   assertNameFree(e, data.name)
   hashPinField(data)
   if (name === 'paymentModes') normalisePaymentMode(data)
+  if (name === 'printers') normalisePrinter(data)
 
   const id = newId()
   db.insert(e.table).values({ id, ...data }).run()
@@ -281,6 +304,7 @@ export function updateMaster(name: string, id: string, body: unknown, employeeId
   assertNameFree(e, data.name, id)
   hashPinField(data)
   if (name === 'paymentModes') normalisePaymentMode(data, before as Record<string, unknown>)
+  if (name === 'printers') normalisePrinter(data, before as Record<string, unknown>)
 
   // Turning a record off is what the guards protect; turning one on is safe.
   if (data.active === false && e.guard) {

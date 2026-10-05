@@ -68,6 +68,8 @@ Where the cashier lives. Two panes.
 
 > **Update 2026-10-04 (2):** **Name and phone are asked at settle**, for every order type. Phone and Name sit at the top of the dialog, both optional, prefilled from the order when it already has them (takeaway, car, delivery). A known number fills the name ("Returning customer · 3 orders"). On Settle the hub saves the customer (unique by phone) and links the order, so the name and phone print on the bill. A number under 5 digits is refused with a message.
 
+> **Update 2026-10-05:** **Cash needs an amount.** With Cash selected, an empty amount no longer means "the full total" — the cashier types the cash received or taps **Exact** or a chip (50, 100…); until then Settle stays disabled and the dialog says "Enter the cash received, or tap Exact." An empty amount had been settling cash nobody entered. Card and other modes still settle the remaining total from an empty amount, since the terminal charges the exact amount.
+
 ## A05 · Floor view — P1
 Area tabs → table grid, same visual language as the waiter app so support can talk staff through it.
 - Tile: table name, status colour + label, order count badge, elapsed, total
@@ -94,6 +96,8 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 > **Update 2026-10-04:** - **Items → "Asks for (modifier groups)"** built: tick the groups an item asks for on the tablet and counter (`PUT /api/masters/items/:id/modifier-groups`, replaces the whole set, audited). Before this only the demo seed could link a group to an item.
 > - **Then hidden the same day:** the **Modifier groups** and **Modifiers** entries and the item form's "Asks for" section are **commented out** in `admin/src/masters/config.ts` and `admin/src/screens/Masters.tsx`. Uncomment to bring them back. The API, tablet modifier sheet and counter modifier modal are unchanged. Menu CSV import never touched modifiers and still works.
 > - **Setup → Printers** now also has **Test print** per row and **Retry failed prints** in the header (moved from A10, below).
+
+> **Update 2026-10-05:** **Setup → Printers: USB.** The form has **Connection** — *Network* (IP address, Port) or *USB (this PC)* (**Windows printer**, a dropdown of the printers installed on the counter PC, from `GET /api/printers/system`). A saved printer that Windows no longer lists shows as "(not found on this PC)" instead of switching to another. The list shows one **Address** column (`ip:port`, or the Windows name). Each enabled printer also has **Test drawer** next to Test print: it kicks the cash drawer wired to that printer, no paper, and is audited. The Dashboard printers card shows Windows' reason when a USB printer is red.
 
 > **Update 2026-10-04 (6):**
 > - **"Order" is now "Display order"**, with a line under it in the form saying where it shows ("Where it sits inside its category on the tablet and the counter. 1 comes first."). It is the position on the tablet menu, the counter's New order, the floor and the area tabs; nothing else uses it. Lists with it are shown in that order (items by category first, tables by area first), so the list reads like the menu.
@@ -168,6 +172,8 @@ Hub with date-range picker (Today / Yesterday / This week / This month / Custom)
 - **Close:** the Z-report from spec §8 — sales by payment mode, cash reconciliation with counted-cash entry, variance highlighted, sales by order type, discounts/voids, VAT, invoice range, top employees
 - Actions: `Print Z-Report` · `Close Shift`
 - **States:** no shift open · shift open · counting (variance live-calculates) · closed/read-only
+
+> **Update 2026-10-05:** **A shift closes only when every order is settled.** The hub refuses the close while any order is open or billed — from any counter or tablet, not only billed orders on this counter as before — and names them ("2 order(s) are not settled yet (#14, #15). Settle or cancel them before closing the shift."). An order with no live lines (opened and left empty) does not block. Before, a seated or sent order could be left out of every Z-report.
 
 ## A20 · Settings — P0
 Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of spec §7) · Invoice (prefix, next number, reprint policy) · Backup (path, last run, Backup Now) · License (expiry, machine id) · Default kitchen.

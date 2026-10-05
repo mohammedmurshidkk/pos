@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { schema } from '@pos/shared'
 import { db } from './db.js'
-import { sendToPrinter } from './printer.js'
+import { deliver } from './printer.js'
 import { renderJob } from './templates.js'
 
 const { printJobs, printers } = schema
@@ -79,7 +79,7 @@ class PrintQueue {
 
         try {
           const payload = renderJob(job.kind, JSON.parse(job.payloadJson), printer.width)
-          await sendToPrinter({ ip: printer.ip, port: printer.port }, payload)
+          await deliver(printer, payload)
           await db
             .update(printJobs)
             .set({ status: 'done', completedAt: new Date(), attempts: job.attempts + 1 })

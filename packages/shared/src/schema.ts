@@ -32,8 +32,17 @@ const sort = () => integer('sort').notNull().default(0)
 export const printers = sqliteTable('printers', {
   id: id(),
   name: text('name').notNull(),
+  /**
+   * How the hub reaches it. `network`: raw TCP to ip:port. `usb`: a printer
+   * installed in the counter PC's operating system (`system_name`), sent RAW
+   * through the spooler so the ESC/POS bytes — cut, drawer kick — pass untouched.
+   */
+  connection: text('connection', { enum: ['network', 'usb'] }).notNull().default('network'),
+  /** Network only. A USB printer stores ''. */
   ip: text('ip').notNull(),
   port: integer('port').notNull().default(9100),
+  /** USB only: the printer's name in Windows (or CUPS on a Mac), e.g. "XP-80C". */
+  systemName: text('system_name'),
   /** 58 or 80 mm. Drives characters-per-line in the ESC/POS renderer. */
   width: integer('width').notNull().default(80),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

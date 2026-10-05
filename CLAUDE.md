@@ -351,6 +351,15 @@ Arabic (deferred).
 **The v0.2.0 installer is broken** — it predates the loopback fix above and
 cannot reach its own hub. Rebuild before any Windows test.
 
+> **Update 2026-10-05:** **USB printers** (one-PC shops, no network printer):
+> Setup → Printers → Connection *USB (this PC)*, pick the Windows printer. The hub
+> sends RAW ESC/POS to the Windows spooler through PowerShell
+> (`server/src/printer-usb.ts`) — no native module, so nothing to add to the
+> better-sqlite3 rebuild dance. Install the printer maker's driver first.
+> **Test drawer** sits next to Test print. `POS_USB_FAKE_DIR=<folder>` fakes the
+> spooler (bytes appended to `<name>.bin`). Shift close now refuses while any
+> order is open or billed; cash settle needs an amount. Server tests 263 → 275.
+
 Never verified: **the installer on real Windows**, **a real thermal printer**,
 **the APK on a real tablet**.
 

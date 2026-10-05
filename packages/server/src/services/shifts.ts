@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
+import { and, count, eq, gte, inArray, isNotNull, isNull, lte, ne, sum } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
 import { db, raw } from '../db.js'
@@ -229,13 +229,22 @@ export function closeShift(shiftId: string, countedCash: number, employeeId: str
   if (!shift) throw notFound('shift')
   if (shift.closedAt) throw conflict('This shift is already closed.')
 
-  const openOrders = db
-    .select({ n: count(s.orders.id) })
+  // Every order still waiting for money blocks the close, wherever it was
+  // taken — tablet orders have no counter until they are billed. Closing with
+  // one pending would leave its money on no Z-report. An order with no live
+  // lines has nothing to settle and does not count.
+  const pending = db
+    .selectDistinct({ id: s.orders.id, orderNo: s.orders.orderNo })
     .from(s.orders)
-    .where(and(eq(s.orders.counterId, shift.counterId), eq(s.orders.status, 'billed')))
-    .get()?.n ?? 0
-  if (openOrders > 0) {
-    throw conflict(`${openOrders} order(s) are billed but not settled. Settle or cancel them before closing.`)
+    .innerJoin(s.orderItems, eq(s.orderItems.orderId, s.orders.id))
+    .where(and(inArray(s.orders.status, ['open', 'billed']), ne(s.orderItems.status, 'void')))
+    .all()
+  if (pending.length > 0) {
+    const nos = pending.map((o) => `#${o.orderNo}`).sort().slice(0, 5).join(', ')
+    throw conflict(
+      `${pending.length} order(s) are not settled yet (${nos}${pending.length > 5 ? ', …' : ''}). ` +
+      'Settle or cancel them before closing the shift.',
+    )
   }
 
   const report = zReport(shiftId, countedCash)

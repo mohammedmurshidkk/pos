@@ -113,6 +113,10 @@ export interface Order {
 export interface Printer {
   id: string; name: string; ip: string; port: number
   width: number; enabled: boolean; online: boolean
+  /** `usb`: installed in Windows on the counter PC, `systemName` is its name there. */
+  connection: 'network' | 'usb'; systemName: string | null
+  /** Why it is red, when the hub knows ("Windows reports: PaperOut"). */
+  statusDetail: string | null
 }
 
 /** One row of the print queue, as the counter's queue panel shows it. */

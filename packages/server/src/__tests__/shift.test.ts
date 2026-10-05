@@ -173,8 +173,26 @@ describe('closing', () => {
     addItems(o.id, [{ itemId: ids.alfaham!, qty: 1 }], ids.rahul!)
     db.update(s.orders).set({ status: 'billed', counterId: ids.counter! }).where(eq(s.orders.id, o.id)).run()
 
-    expect(() => closeShift(shiftId, 0, ids.fatima!)).toThrow(/billed but not settled/i)
+    expect(() => closeShift(shiftId, 0, ids.fatima!)).toThrow(/not settled/i)
     db.update(s.orders).set({ status: 'void' }).where(eq(s.orders.id, o.id)).run()
+  })
+
+  it('refuses to close while an order is still open, even one from a tablet with no counter', () => {
+    const shiftId = openShiftIdFor(ids.counter!)!
+    const o = createOrder({ type: 'takeaway', createdBy: ids.rahul! })!
+    addItems(o.id, [{ itemId: ids.alfaham!, qty: 1 }], ids.rahul!)
+    sendToKitchen(o.id, ids.rahul!)
+
+    expect(() => closeShift(shiftId, 0, ids.fatima!)).toThrow(new RegExp(`#${getOrder(o.id)!.orderNo}`))
+    db.update(s.orders).set({ status: 'void' }).where(eq(s.orders.id, o.id)).run()
+  })
+
+  it('does not count an open order with nothing on it', () => {
+    const shiftId = openShiftIdFor(ids.counter!)!
+    const o = createOrder({ type: 'takeaway', createdBy: ids.rahul! })!
+    expect(() => zReport(shiftId)).not.toThrow()
+    // Left open on purpose: the next test closes the shift around it.
+    expect(getOrder(o.id)!.status).toBe('open')
   })
 
   it('freezes the numbers, queues the report and writes a backup', () => {

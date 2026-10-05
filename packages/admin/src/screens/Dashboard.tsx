@@ -125,11 +125,11 @@ function HealthStrip({ backup }: { backup: BackupStatus | null }) {
           {printers.length === 0 ? <span className="muted">{printersChecked ? 'No printers set up' : 'Checking printers…'}</span> : printers.map((p) => {
             const c = jobCounts[p.id]
             return (
-              <span key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+              <span key={p.id} title={p.statusDetail ?? undefined} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 5, background: p.online ? 'var(--success)' : 'var(--danger)' }} />
                 {p.name}
                 <span className="muted" style={{ fontSize: 13 }}>
-                  {p.online ? '' : 'offline'}
+                  {p.online ? '' : p.connection === 'usb' && p.statusDetail ? p.statusDetail : 'offline'}
                   {c?.failed ? ` ${c.failed} failed` : ''}
                   {c?.pending ? ` ${c.pending} waiting` : ''}
                 </span>

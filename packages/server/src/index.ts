@@ -9,7 +9,8 @@ import { newId, schema } from '@pos/shared'
 import { db, migrateDb } from './db.js'
 import { seedMinimal } from './seed-minimal.js'
 import { AppError, conflict, forbidden, notFound, unpaired } from './errors.js'
-import { pingPrinter } from './printer.js'
+import { printerHealth } from './printer.js'
+import { listUsbPrinters } from './printer-usb.js'
 import { printQueue } from './queue.js'
 import { applyDiscount, paidSoFar, printBill, settle } from './services/billing.js'
 import { addItems, createOrder, getOrder, listClosedOrders, listOpenOrders, sendToKitchen, setTable, setWaiter, submitOrder } from './services/orders.js'
@@ -26,7 +27,7 @@ import {
 } from './services/superadmin.js'
 import { createExpense, listExpenses } from './services/expenses.js'
 import { backupStatus, runBackup, setBackupDirectory, startDailyBackups } from './services/backups.js'
-import { discardPrintJob, listPrintJobs, printJobCounts, retryPrintJob } from './services/print-jobs.js'
+import { discardPrintJob, listPrintJobs, printJobCounts, retryPrintJob, testDrawer } from './services/print-jobs.js'
 import {
   MASTERS, bulkTables, createMaster, deactivateMaster, listItemModifierGroups, listMaster,
   setItemModifierGroups, updateMaster, updateSettings,
@@ -691,7 +692,24 @@ app.get('/api/reports/:kind', async (req, reply) => {
 
 app.get('/api/printers', async () => {
   const rows = db.select().from(s.printers).all()
-  return Promise.all(rows.map(async (p) => ({ ...p, online: await pingPrinter({ ip: p.ip, port: p.port }) })))
+  return Promise.all(rows.map(async (p) => {
+    const { online, detail } = await printerHealth(p)
+    return { ...p, online, statusDetail: detail }
+  }))
+})
+
+/** Printers installed in Windows on this PC — the choices for a USB printer. */
+app.get('/api/printers/system', async () => {
+  try {
+    return { printers: await listUsbPrinters(), error: null }
+  } catch (e) {
+    return { printers: [], error: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+app.post('/api/printers/:id/drawer', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  return testDrawer((req.params as { id: string }).id, employeeId)
 })
 
 app.post('/api/printers/:id/test', async (req) => {
@@ -702,6 +720,7 @@ app.post('/api/printers/:id/test', async (req) => {
     id: newId(), printerId: printer.id, kind: 'test',
     payloadJson: JSON.stringify({
       printerName: printer.name, ip: printer.ip, port: printer.port,
+      connection: printer.connection, systemName: printer.systemName,
       at: new Date().toLocaleString('en-GB'),
     }),
   }).run()

@@ -39,10 +39,13 @@ export function Settle({ order, onClose, onSettled }: {
   const added = useMemo(() => tenders.reduce((a, t) => a + t.amount, 0), [tenders])
   const remaining = Math.max(0, order.total - added)
 
-  // What is on screen counts without an "Add payment" tap. The common case —
-  // one mode, exact or a cash chip — is pick, settle. An empty amount means
-  // "the rest of it". "+ Split" is only for part-cash part-card.
-  const typed = amount.trim() === '' ? remaining : toMinor(amount)
+  // What is on screen counts without an "Add payment" tap. "+ Split" is only
+  // for part-cash part-card. Cash needs an amount typed or a chip tapped
+  // (Exact, 50, 100…): settling cash nobody entered records money the drawer
+  // may not hold. Card and other modes charge the exact rest, so an empty
+  // amount there still means "the rest of it".
+  const isCash = mode?.type === 'cash'
+  const typed = amount.trim() === '' ? (isCash ? 0 : remaining) : toMinor(amount)
   const pending: Tender | null = typed > 0
     ? { paymentModeId: modeId, amount: typed, refNo: refNo.trim() || null }
     : null
@@ -51,6 +54,7 @@ export function Settle({ order, onClose, onSettled }: {
   const due = Math.max(0, order.total - taken)
   const change = Math.max(0, taken - order.total)
   const needsRef = pending != null && mode?.requiresRef && !refNo.trim()
+  const needsCash = isCash && amount.trim() === '' && taken < order.total
 
   const addTender = () => {
     const minor = toMinor(amount)
@@ -65,6 +69,7 @@ export function Settle({ order, onClose, onSettled }: {
   const settle = async () => {
     if (!operator || !counterId) return setError('Sign in at the counter first.')
     if (needsRef) return setError(`${mode?.name} needs an approval or reference number.`)
+    if (needsCash) return setError('Enter the cash received, or tap Exact.')
     setBusy(true)
     setError(null)
     try {
@@ -116,7 +121,7 @@ export function Settle({ order, onClose, onSettled }: {
             value={amount}
             inputMode="decimal"
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={(remaining / 10 ** decimals).toFixed(decimals)}
+            placeholder={isCash ? 'Cash received' : (remaining / 10 ** decimals).toFixed(decimals)}
           />
         </Field>
         {mode?.requiresRef ? (
@@ -157,6 +162,10 @@ export function Settle({ order, onClose, onSettled }: {
           {money(change > 0 ? change : due)}
         </span>
       </div>
+
+      {needsCash && remaining > 0 ? (
+        <span className="muted" style={{ textAlign: 'right' }}>Enter the cash received, or tap Exact.</span>
+      ) : null}
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Button onClick={onClose}>Cancel</Button>

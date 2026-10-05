@@ -113,6 +113,8 @@ Settings (single row)
 
 One printer may serve many counters/kitchens. A single-printer shop creates one kitchen ("Main Kitchen") pointing at the same printer as the counter — same code path, no special case.
 
+> **Update 2026-10-05:** **USB printers.** Some shops have one POS PC, no tablets and no network printer. A printer can now be **Network** (IP + port, as before) or **USB (this PC)**: plugged into the counter PC, its Windows driver installed, chosen by its Windows name. The single-printer setup above is unchanged — every kitchen and the counter point at that one printer, and KOTs and bills come out of it in turn. Tablets still work with a USB printer, because every ticket goes through the hub.
+
 Categories and items can be bulk-loaded from a CSV (`category, item, price, kitchen`). The sheet names a **kitchen**, never a printer, and the import never creates kitchens. So printers and kitchens are set up first, and the menu is imported on top. See [`05-menu-import.md`](05-menu-import.md).
 
 ---
@@ -142,6 +144,8 @@ devices             id, name, type(tablet|counter_pc), pair_token,
                     default_counter_id, last_seen, active
 settings            single row — see §7
 ```
+
+> **Update 2026-10-05:** `printers` gains `connection` (`network` | `usb`, default `network`) and `system_name` (the Windows printer name, USB only). A USB printer stores `ip = ''`. Migration `0011`.
 
 ### Transactions
 ```
@@ -266,6 +270,11 @@ open ──KOT sent──> open ──bill printed──> billed ──settle─
 - Retry with backoff, ~5 attempts, then fail and raise a visible alert on the cashier PC with a Retry button.
 - Health check every 30s (TCP ping :9100) → green/red dot per printer in admin.
 - **Test Print button** next to every printer. Non-negotiable for on-site setup.
+
+> **Update 2026-10-05:** **USB delivery.** The hub hands the Windows spooler our ESC/POS bytes as a **RAW** document (`winspool`: OpenPrinter → StartDocPrinter "RAW" → WritePrinter, run through PowerShell), so the driver adds no layout and the cut and drawer kick arrive exactly as over TCP. No native module, no Zadig/WinUSB driver swap. On a Mac (development) it uses CUPS `lp -o raw`; `POS_USB_FAKE_DIR` replaces the spooler with a folder for tests. Code: `server/src/printer-usb.ts`, chosen per printer by `deliver()` in `printer.ts`.
+> - **Health:** from Windows (`Get-Printer`): red when set offline, in an error state, or with **3+ jobs waiting** in the Windows queue — a switched-off USB printer often still reads "Normal" but its jobs pile up. Checked at most every 10 s per printer. Less certain than the TCP check: Windows accepting a ticket is not the same as paper coming out.
+> - **Cash drawer:** unchanged — it plugs into the printer, so a cash settle's `drawer` job opens it over USB the same way. **Test drawer** next to every printer (`POST /api/printers/:id/drawer`, audited `printer.drawer_test`).
+> - The Windows driver must be a classic (v3) driver that accepts RAW; the printer makers' own thermal drivers are. Never verified on a real printer yet.
 
 ### 6.6 Employee identity on the tablet — no login
 

@@ -147,6 +147,9 @@ export const api = {
 
   printers: () => request<Printer[]>('/api/printers'),
   testPrint: (id: string) => post<unknown>(`/api/printers/${id}/test`),
+  /** Printers installed in Windows on the counter PC, for a USB printer. */
+  systemPrinters: () => request<{ printers: string[]; error: string | null }>('/api/printers/system'),
+  testDrawer: (id: string, employeeId: string) => post<{ queued: boolean }>(`/api/printers/${id}/drawer`, { employeeId }),
   retryJobs: (printerId?: string) => post<{ retried: number }>('/api/print-jobs/retry', { printerId }),
   printJobs: (status: 'problems' | 'all' = 'problems') =>
     request<{ jobs: PrintJob[]; counts: Record<string, { pending: number; failed: number }> }>(`/api/print-jobs?status=${status}`),

@@ -1,9 +1,10 @@
 import { desc, eq, inArray } from 'drizzle-orm'
-import { schema } from '@pos/shared'
+import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
 import { db } from '../db.js'
 import { conflict, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
+import { requireEmployee } from './employees.js'
 
 const s = schema
 
@@ -111,4 +112,23 @@ export function discardPrintJob(id: string, employeeId: string) {
   db.update(s.printJobs).set({ status: 'discarded', completedAt: new Date() }).where(eq(s.printJobs.id, id)).run()
   audit(employeeId, 'print_job.discard', 'print_job', id, { kind: j.kind, was: j.status, lastError: j.lastError })
   return { id, status: 'discarded' as const }
+}
+
+/**
+ * Open the cash drawer from Setup, to check it is wired to this printer.
+ *
+ * The drawer plugs into the printer (RJ11), so this is a no-paper job through
+ * the same queue a cash settle uses — over the network or USB alike. Audited:
+ * an open drawer with no sale is exactly what the log is for.
+ */
+export function testDrawer(printerId: string, employeeId: string) {
+  requireEmployee(employeeId)
+  const printer = db.select().from(s.printers).where(eq(s.printers.id, printerId)).get()
+  if (!printer) throw notFound('printer')
+  if (!printer.enabled) throw conflict('This printer is disabled. Enable it first.')
+  const id = newId()
+  db.insert(s.printJobs).values({ id, printerId, kind: 'drawer', payloadJson: '{}', refId: null }).run()
+  printQueue.kick(printerId)
+  audit(employeeId, 'printer.drawer_test', 'printer', printerId, { printerName: printer.name })
+  return { queued: true, jobId: id }
 }

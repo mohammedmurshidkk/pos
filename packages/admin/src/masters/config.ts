@@ -6,6 +6,11 @@ interface FieldCommon {
   showIf?: (values: Record<string, unknown>) => boolean
   /** Other fields to change in the form when this one changes. */
   alsoSets?: (value: unknown) => Record<string, unknown>
+  /** false: form only, no column in the list. */
+  inTable?: boolean
+  /** The list column's heading and cell, when they differ from the form field. */
+  tableLabel?: string
+  tableText?: (row: Row) => string
 }
 
 export type Field = FieldCommon & (
@@ -23,6 +28,7 @@ export type Field = FieldCommon & (
 )
 
 const notCash = (v: Record<string, unknown>) => v.type !== 'cash'
+const onNetwork = (v: Record<string, unknown>) => v.connection !== 'usb'
 
 export interface MasterSpec {
   entity: string
@@ -44,17 +50,29 @@ export const MASTERS: MasterSpec[] = [
   {
     entity: 'printers',
     title: 'Printers',
-    hint: 'Every kitchen and counter prints through one of these. Use a reserved IP so it never moves.',
+    hint: 'Every kitchen and counter prints through one of these. Network printers need a reserved IP so it never moves; a USB printer is plugged into this PC.',
     fields: [
       { key: 'name', label: 'Name', kind: 'text', width: 200 },
-      { key: 'ip', label: 'IP address', kind: 'text', placeholder: '192.168.1.15', width: 160 },
-      { key: 'port', label: 'Port', kind: 'number', min: 1, max: 65535, width: 90 },
+      // USB: a printer plugged into this PC, for a shop with one till and no
+      // network printer. Its Windows driver must be installed first.
+      { key: 'connection', label: 'Connection', kind: 'select', width: 120, choices: [
+        { value: 'network', label: 'Network' }, { value: 'usb', label: 'USB (this PC)' },
+      ] },
+      { key: 'ip', label: 'IP address', kind: 'text', placeholder: '192.168.1.15', width: 200, showIf: onNetwork,
+        tableLabel: 'Address',
+        tableText: (r) => r.connection === 'usb' ? String(r.systemName ?? '') : `${String(r.ip)}:${String(r.port)}` },
+      { key: 'port', label: 'Port', kind: 'number', min: 1, max: 65535, width: 90, showIf: onNetwork, inTable: false },
+      { key: 'systemName', label: 'Windows printer', kind: 'select', from: 'systemPrinters', showIf: (v) => !onNetwork(v),
+        inTable: false,
+        help: 'As Windows lists it under Printers & scanners. Install the printer\'s own driver first, then it appears here.' },
       { key: 'width', label: 'Paper', kind: 'select', width: 110, choices: [
         { value: '80', label: '80mm' }, { value: '58', label: '58mm' },
       ] },
       { key: 'enabled', label: 'Enabled', kind: 'bool', width: 90 },
     ],
-    defaults: { port: 9100, width: 80, enabled: true },
+    defaults: { connection: 'network', port: 9100, width: 80, enabled: true },
+    // Not a master: read from the counter PC's own printer list.
+    needs: ['systemPrinters'],
   },
   {
     entity: 'kitchens',
