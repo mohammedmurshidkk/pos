@@ -191,7 +191,7 @@ function FirstRunSetup({ onDone }: { onDone: (token: string) => void }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div className="card" style={{ width: 520, maxWidth: '100%', padding: 32, display: 'grid', gap: 16 }}>
         <div>
           <div style={{ marginBottom: 12 }}><BrandMark size={32} /></div>

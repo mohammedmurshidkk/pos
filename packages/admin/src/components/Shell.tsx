@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import { Login } from '../screens/Login'
-import { OpenCounter } from '../screens/OpenCounter'
+import { CounterClosed, OpenCounter } from '../screens/OpenCounter'
 import { timeLeft } from '../licence'
 import { useStore } from '../store'
 import { isAdminPath } from './nav'
@@ -13,6 +13,7 @@ import { TopBar } from './TopBar'
 export function Shell() {
   const {
     data, error, load, refreshPrinters, refreshJobs, queueOpen, setQueueOpen, operator, counterId, setAdminUnlocked,
+    closedShift, setClosedShift,
   } = useStore()
   const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
   const [canOpen, setCanOpen] = useState(true)
@@ -73,7 +74,7 @@ export function Shell() {
 
   if (!data) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div className="card" style={{ padding: 32, display: 'grid', gap: 16, minWidth: 380 }}>
           <h2>{error ? 'Cannot reach the hub' : 'Starting…'}</h2>
           {error ? (
@@ -92,6 +93,16 @@ export function Shell() {
   // a shift cannot be opened (licence expired and nothing left to settle);
   // then let the cashier in to read reports and renew instead of trapping them.
   const expired = data.licence?.state === 'expired' || data.licence?.state === 'unlicensed'
+  // Closing the shift says so first, rather than the screen silently turning
+  // into "Open the counter" and leaving the cashier wondering what happened.
+  if (closedShift) {
+    return (
+      <CounterClosed
+        closed={closedShift}
+        onDone={() => { setClosedShift(null); setShiftOpen(false); void checkShift() }}
+      />
+    )
+  }
   if (shiftOpen === false && canOpen) return <OpenCounter onOpened={() => setShiftOpen(true)} />
 
   const lapsed = data.licence?.state === 'unlicensed'

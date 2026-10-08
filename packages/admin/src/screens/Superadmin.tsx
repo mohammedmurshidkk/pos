@@ -49,7 +49,7 @@ export function Superadmin({ onExit }: { onExit: () => void }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: 24 }}>
+    <div style={{ minHeight: '100%', background: 'var(--bg)', padding: 24 }}>
       <div style={{ maxWidth: 860, margin: '0 auto', display: 'grid', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ flex: 1 }}>

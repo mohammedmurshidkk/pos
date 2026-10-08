@@ -3,6 +3,13 @@
 Newest first. The docs keep the old text with a dated **Update** block under it
 (see "Keeping the docs" in `CLAUDE.md`); this file is the index of those changes.
 
+## 2026-10-08
+
+| Area | Change | Where |
+|---|---|---|
+| Shift close | **Counter closed** screen after closing the shift (sales, expected and counted cash, over/short, backup result), then OK to the open-counter screen or Sign out. Was: the Shift screen silently turned into "Open the counter" | `admin/src/screens/OpenCounter.tsx`, `Shift.tsx`, `components/Shell.tsx`, `store.ts` |
+| Desktop window | **Own title bar** on every screen incl. sign-in: minimise, full screen ⇄ window, close (confirms, hides to tray, hub keeps running). Window is frameless; still opens in kiosk with the taskbar hidden | `admin/src/components/TitleBar.tsx`, `admin/src/main.tsx`, `desktop/src/main.ts`, `preload.ts` |
+
 ## 2026-10-05
 
 | Area | Change | Where |

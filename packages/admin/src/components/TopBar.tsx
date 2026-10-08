@@ -2,17 +2,11 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import { brand } from '../brand'
+import '../desktop'
 import { useStore } from '../store'
 import { PinConfirm } from './AdminGate'
 import { MORE, QUICK, moreScreenFor } from './nav'
 import { Banner, Button, Field, Modal, initials, inputStyle } from './ui'
-
-/** Kiosk on/off from the Electron shell (desktop/src/preload.ts). Absent in a browser. */
-declare global {
-  interface Window {
-    desktop?: { isKiosk: () => Promise<boolean>; setKiosk: (on: boolean) => Promise<boolean> }
-  }
-}
 
 export const TOP_BAR_H = 64
 const CONTROL_H = 48
