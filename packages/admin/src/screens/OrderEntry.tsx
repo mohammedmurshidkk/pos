@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { Customer, Item, Order, OrderType } from '../api/types'
@@ -88,6 +88,12 @@ export function OrderEntry() {
     return all.filter((i) => i.categoryId === activeCategory).sort((a, b) => a.sort - b.sort)
   }, [data, search, activeCategory])
 
+  const countIn = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const i of data?.items ?? []) if (i.isAvailable) m.set(i.categoryId, (m.get(i.categoryId) ?? 0) + 1)
+    return m
+  }, [data])
+
   const groupsFor = (itemId: string) => {
     const links = (data?.itemModifierGroups ?? []).filter((l) => l.itemId === itemId)
       .sort((a, b) => a.sort - b.sort)
@@ -172,206 +178,374 @@ export function OrderEntry() {
   const tablesInArea = (data?.tables ?? []).filter((t) => t.areaId === activeArea).sort((a, b) => a.sort - b.sort)
   const ordersOn = (tid: string) => openOrders.filter((o) => o.tableId === tid).length
   const tableName = (tid: string | null) => data?.tables.find((t) => t.id === tid)?.name ?? ''
+  const categoryName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? ''
+  const inCart = (itemId: string) => cart.reduce((n, l) => (l.item.id === itemId ? n + l.qty : n), 0)
+  const cartCount = cart.reduce((n, l) => n + l.qty, 0)
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 360px', gap: 16, height: '100%', minHeight: 0 }}>
-      {/* ── order details ── */}
-      <section className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflow: 'auto' }}>
-        {existing ? (
-          <>
-            <h2>Add to order #{existing.orderNo}</h2>
-            <div className="muted">
-              {TYPES.find((t) => t.id === existing.type)?.label}
-              {existing.tableId ? ` · Table ${tableName(existing.tableId)}` : ''}
-              {existing.ticketLabel ? ` · ${existing.ticketLabel}` : ''}
-            </div>
-            <div className="muted" style={{ fontSize: 13 }}>
-              Already on the order: {existing.lines.filter((l) => l.status !== 'void').length} item(s), {money(existing.total)}
-            </div>
-          </>
-        ) : (
-          <>
-            <h2>New order</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {TYPES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setType(t.id)}
-                  style={{
-                    height: 44, borderRadius: 'var(--r-button)', cursor: 'pointer', fontWeight: 600,
-                    border: `1px solid ${type === t.id ? t.color : 'var(--border)'}`,
-                    background: type === t.id ? `color-mix(in srgb, ${t.color} 14%, transparent)` : 'var(--surface)',
-                    color: type === t.id ? t.color : 'var(--text-muted)',
-                  }}
-                >{t.label}</button>
+  /**
+   * The screen lays itself out by its own width, not the window's: counters run
+   * anything from a 1024×768 POS monitor to a 1080p screen. Items are the point
+   * of this screen, so the menu always gets the most room.
+   *   wide    ≥ 1440  details | menu | order
+   *   split   ≥ 760   menu | details + order in one panel
+   *   stacked < 760   menu above the panel
+   */
+  const [box, setBox] = useState<HTMLDivElement | null>(null)
+  const width = useWidth(box)
+  const layout = width >= 1440 ? 'wide' : width >= 760 ? 'split' : 'stacked'
+  const panelW = width >= 1200 ? 380 : 330
+  const gap = layout === 'wide' ? 16 : 12
+  const menuW = layout === 'wide' ? width - 280 - panelW - 2 * gap
+    : layout === 'split' ? width - panelW - gap : width
+  // A slim category rail beside the items when there is room, else one scrolling row of tabs.
+  const rail = menuW >= 560
+
+  const catBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    catBox.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeCategory, rail])
+
+  const fillInput: React.CSSProperties = { ...inputStyle, width: '100%', minWidth: 0 }
+  const rowButton: React.CSSProperties = { whiteSpace: 'nowrap', fontSize: 14, paddingLeft: 8, paddingRight: 8 }
+
+  const pickCategory = (cid: string) => { setCategoryId(cid); setSearch('') }
+
+  const details = existing ? (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <h2>Add to order #{existing.orderNo}</h2>
+      <div className="muted">
+        {TYPES.find((t) => t.id === existing.type)?.label}
+        {existing.tableId ? ` · Table ${tableName(existing.tableId)}` : ''}
+        {existing.ticketLabel ? ` · ${existing.ticketLabel}` : ''}
+      </div>
+      <div className="muted" style={{ fontSize: 13 }}>
+        Already on the order: {existing.lines.filter((l) => l.status !== 'void').length} item(s), {money(existing.total)}
+      </div>
+    </div>
+  ) : (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {layout === 'wide' ? <h2>New order</h2> : null}
+      <div style={{ display: 'grid', gridTemplateColumns: layout === 'wide' ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 6 }}>
+        {TYPES.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setType(t.id)}
+            style={{
+              height: layout === 'wide' ? 44 : 40, padding: 0, borderRadius: 'var(--r-button)', cursor: 'pointer',
+              fontWeight: 600, fontSize: layout === 'wide' ? 14 : 13,
+              border: `1px solid ${type === t.id ? t.color : 'var(--border)'}`,
+              background: type === t.id ? `color-mix(in srgb, ${t.color} 14%, transparent)` : 'var(--surface)',
+              color: type === t.id ? t.color : 'var(--text-muted)',
+            }}
+          >{t.label}</button>
+        ))}
+      </div>
+
+      {type === 'dine_in' ? (
+        <>
+          {areas.length > 1 ? (
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', flexShrink: 0 }}>
+              {areas.map((a) => (
+                <button key={a.id} onClick={() => setAreaId(a.id)} style={{ ...chip(a.id === activeArea), flexShrink: 0 }}>{a.name}</button>
               ))}
             </div>
-
-            {type === 'dine_in' ? (
-              <>
-                {areas.length > 1 ? (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {areas.map((a) => (
-                      <button key={a.id} onClick={() => setAreaId(a.id)} style={chip(a.id === activeArea)}>{a.name}</button>
-                    ))}
-                  </div>
-                ) : null}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                  {tablesInArea.map((t) => {
-                    const n = ordersOn(t.id)
-                    const on = t.id === tableId
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setTableId(t.id)}
-                        style={{
-                          height: 52, borderRadius: 'var(--r-card)', cursor: 'pointer', fontWeight: 600,
-                          border: `1px solid ${on ? 'var(--primary)' : n ? 'var(--warning)' : 'var(--border)'}`,
-                          background: on ? 'var(--primary-subtle)' : 'var(--surface)',
-                          color: on ? 'var(--primary)' : 'var(--text)', display: 'grid', placeItems: 'center',
-                        }}
-                      >
-                        <span>{t.name}</span>
-                        {n ? <span style={{ fontSize: 11, color: 'var(--warning)' }}>{n} open</span> : null}
-                      </button>
-                    )
-                  })}
-                </div>
-                {tablesInArea.length === 0 ? <span className="muted">No tables in this area. Add them under Setup.</span> : null}
-                <Field label="Label (optional)">
-                  <input style={inputStyle} value={ticketLabel} placeholder="Blue shirt" onChange={(e) => setTicketLabel(e.target.value)} />
-                </Field>
-              </>
-            ) : null}
-
-            {type === 'takeaway' ? (
-              <CustomerFields phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName} />
-            ) : null}
-
-            {type === 'car' ? (
-              <>
-                <Field label="Vehicle number">
-                  <input style={inputStyle} value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value)} />
-                </Field>
-                <Field label="Bay (optional)">
-                  <input style={inputStyle} value={bayNo} onChange={(e) => setBayNo(e.target.value)} />
-                </Field>
-                <CustomerFields phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName} />
-              </>
-            ) : null}
-
-            {type === 'delivery' ? (
-              <>
-                <CustomerFields
-                  phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName}
-                  autoFocus
-                  onFound={(c) => {
-                    setKnown(c)
-                    // The address used last is the likeliest one this time.
-                    if (c?.addresses[0]) setAddress((a) => a.trim() ? a : c.addresses[0]!)
+          ) : null}
+          <span className="muted" style={{ fontSize: 12 }}>Tables · {tablesInArea.length}</span>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: 6,
+            // In the side panel the tables must not push the order off the screen.
+            maxHeight: layout === 'wide' ? undefined : 200, overflowY: 'auto', flexShrink: 0,
+          }}>
+            {tablesInArea.map((t) => {
+              const n = ordersOn(t.id)
+              const on = t.id === tableId
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTableId(t.id)}
+                  style={{
+                    height: 44, borderRadius: 'var(--r-card)', cursor: 'pointer', fontWeight: 600,
+                    border: `1px solid ${on ? 'var(--primary)' : n ? 'var(--warning)' : 'var(--border)'}`,
+                    background: on ? 'var(--primary-subtle)' : 'var(--surface)',
+                    color: on ? 'var(--primary)' : 'var(--text)', display: 'grid', placeItems: 'center',
                   }}
-                />
-                {known && known.addresses.length > 1 ? (
-                  <div style={{ display: 'grid', gap: 4 }}>
-                    <span className="label">Saved addresses</span>
-                    {known.addresses.map((a) => (
-                      <button key={a} onClick={() => setAddress(a)} style={{ ...chip(a === address.trim()), height: 'auto', minHeight: 32, padding: '6px 12px', textAlign: 'left', borderRadius: 'var(--r-button)' }}>
-                        {a}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <Field label="Address">
-                  <textarea
-                    style={{ ...inputStyle, height: 80, padding: 8, resize: 'vertical' }}
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                  />
-                </Field>
-              </>
-            ) : null}
-          </>
-        )}
-      </section>
+                >
+                  <span>{t.name}</span>
+                  {n ? <span style={{ fontSize: 11, color: 'var(--warning)' }}>{n} open</span> : null}
+                </button>
+              )
+            })}
+          </div>
+          {tablesInArea.length === 0 ? <span className="muted">No tables in this area. Add them under Setup.</span> : null}
+          <Field label="Label (optional)">
+            <input style={inputStyle} value={ticketLabel} placeholder="Blue shirt" onChange={(e) => setTicketLabel(e.target.value)} />
+          </Field>
+        </>
+      ) : null}
 
-      {/* ── menu ── */}
-      <section className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+      {type === 'takeaway' ? (
+        <CustomerFields phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName} row={layout !== 'wide'} />
+      ) : null}
+
+      {type === 'car' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: layout === 'wide' ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
+            <Field label="Vehicle number">
+              <input style={fillInput} value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value)} />
+            </Field>
+            <Field label="Bay (optional)">
+              <input style={fillInput} value={bayNo} onChange={(e) => setBayNo(e.target.value)} />
+            </Field>
+          </div>
+          <CustomerFields phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName} row={layout !== 'wide'} />
+        </>
+      ) : null}
+
+      {type === 'delivery' ? (
+        <>
+          <CustomerFields
+            phone={phone} name={customerName} onPhone={setPhone} onName={setCustomerName}
+            autoFocus row={layout !== 'wide'}
+            onFound={(c) => {
+              setKnown(c)
+              // The address used last is the likeliest one this time.
+              if (c?.addresses[0]) setAddress((a) => a.trim() ? a : c.addresses[0]!)
+            }}
+          />
+          {known && known.addresses.length > 1 ? (
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span className="label">Saved addresses</span>
+              {known.addresses.map((a) => (
+                <button key={a} onClick={() => setAddress(a)} style={{ ...chip(a === address.trim()), height: 'auto', minHeight: 32, padding: '6px 12px', textAlign: 'left', borderRadius: 'var(--r-button)' }}>
+                  {a}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <Field label="Address">
+            <textarea
+              style={{ ...inputStyle, height: layout === 'wide' ? 80 : 56, padding: 8, resize: 'vertical' }}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+          </Field>
+        </>
+      ) : null}
+    </div>
+  )
+
+  const categoryButtons = categories.map((c) => {
+    const on = !search && c.id === activeCategory
+    const n = countIn.get(c.id) ?? 0
+    return rail ? (
+      <button
+        key={c.id}
+        aria-current={on}
+        onClick={() => pickCategory(c.id)}
+        style={{
+          minHeight: 40, padding: '6px 10px 6px 12px', flexShrink: 0, cursor: 'pointer', textAlign: 'left',
+          display: 'flex', alignItems: 'center', gap: 8, borderRadius: 'var(--r-button)', border: 'none',
+          borderLeft: `3px solid ${on ? 'var(--primary)' : 'transparent'}`,
+          background: on ? 'var(--primary-subtle)' : 'transparent',
+          color: on ? 'var(--primary)' : 'var(--text)', fontWeight: on ? 700 : 500, fontSize: 14,
+        }}
+      >
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+        <span style={{ fontSize: 12, color: on ? 'var(--primary)' : 'var(--text-faint)' }}>{n}</span>
+      </button>
+    ) : (
+      <button
+        key={c.id}
+        aria-current={on}
+        onClick={() => pickCategory(c.id)}
+        style={{ ...chip(on), height: 36, padding: '0 14px', flexShrink: 0, whiteSpace: 'nowrap', fontSize: 14 }}
+      >{c.name}</button>
+    )
+  })
+
+  const menu = (
+    <section className="card" style={{
+      padding: 12, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, minHeight: 0,
+      height: layout === 'stacked' ? '64vh' : undefined,
+    }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <input
-          autoFocus
-          placeholder="Search the menu…"
+          autoFocus={!existing && type !== 'delivery'}
+          placeholder="Search items…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ ...inputStyle, height: 44, fontSize: 16 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setSearch('')
+            // One match left: Enter adds it, so a cashier can key an order without the mouse.
+            if (e.key === 'Enter' && search.trim() && items.length === 1) { tap(items[0]!); setSearch('') }
+          }}
+          style={{ ...inputStyle, width: '100%', height: 44, fontSize: 16, paddingRight: 44 }}
         />
-        {!search ? (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {categories.map((c) => (
-              <button key={c.id} onClick={() => setCategoryId(c.id)} style={chip(c.id === activeCategory)}>{c.name}</button>
-            ))}
-          </div>
+        {search ? (
+          <button
+            aria-label="Clear search"
+            onClick={() => setSearch('')}
+            style={{
+              position: 'absolute', right: 4, top: 4, width: 36, height: 36, border: 'none', cursor: 'pointer',
+              borderRadius: 'var(--r-button)', background: 'transparent', color: 'var(--text-muted)', fontSize: 20,
+            }}
+          >×</button>
         ) : null}
-        <div style={{ overflow: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, alignContent: 'start' }}>
-          {items.length === 0 ? <EmptyState title="No items" hint={search ? 'Nothing matches that search.' : 'This category is empty.'} /> : items.map((i) => (
-            <button
-              key={i.id}
-              onClick={() => tap(i)}
-              style={{
-                minHeight: 72, padding: 10, textAlign: 'left', cursor: 'pointer',
-                borderRadius: 'var(--r-card)', border: '1px solid var(--border)', background: 'var(--surface)',
-                display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6,
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>{i.name}</span>
-              <span className="money muted" style={{ textAlign: 'left' }}>{money(i.price)}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+      </div>
 
-      {/* ── cart ── */}
-      <section className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+      {!rail ? (
+        <div ref={catBox} style={{ display: 'flex', gap: 6, overflowX: 'auto', flexShrink: 0, paddingBottom: 4 }}>
+          {categoryButtons}
+        </div>
+      ) : null}
+
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 10 }}>
+        {rail ? (
+          <nav
+            ref={catBox}
+            aria-label="Categories"
+            style={{
+              width: menuW >= 900 ? 190 : menuW >= 620 ? 176 : 156, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column',
+              gap: 2, paddingRight: 8, borderRight: '1px solid var(--border)',
+            }}
+          >
+            {categoryButtons}
+          </nav>
+        ) : null}
+
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+          <div className="label" style={{ flexShrink: 0 }}>
+            {search.trim() ? `${items.length} match${items.length === 1 ? '' : 'es'} for “${search.trim()}”` : categoryName(activeCategory ?? '')}
+          </div>
+          <div style={{
+            flex: 1, minHeight: 0, overflowY: 'auto', display: 'grid', gap: 8, alignContent: 'start',
+            gridTemplateColumns: `repeat(auto-fill, minmax(${menuW >= 900 ? 160 : 140}px, 1fr))`,
+          }}>
+            {items.length === 0 ? (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <EmptyState title="No items" hint={search ? 'Nothing matches that search.' : 'This category is empty.'} />
+              </div>
+            ) : items.map((i) => {
+              const n = inCart(i.id)
+              return (
+                <button
+                  key={i.id}
+                  onClick={() => tap(i)}
+                  style={{
+                    position: 'relative', minHeight: 80, padding: 10, textAlign: 'left', cursor: 'pointer',
+                    borderRadius: 'var(--r-card)', touchAction: 'manipulation',
+                    border: `${n ? 2 : 1}px solid ${n ? 'var(--primary)' : 'var(--border)'}`,
+                    background: n ? 'var(--primary-subtle)' : 'var(--surface)',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6,
+                  }}
+                >
+                  <span style={{
+                    fontWeight: 600, fontSize: 15, lineHeight: 1.25, flexShrink: 0,
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                  }}>{i.name}</span>
+                  <span style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                    <span className="money muted" style={{ flexShrink: 0 }}>{money(i.price)}</span>
+                    {search.trim() ? <span className="faint" style={{ flex: 1, minWidth: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{categoryName(i.categoryId)}</span> : null}
+                    {n ? (
+                      <span style={{
+                        marginLeft: 'auto', flexShrink: 0, minWidth: 22, height: 22, padding: '0 7px', borderRadius: 11,
+                        background: 'var(--primary)', color: 'var(--on-primary)', fontSize: 13, fontWeight: 700,
+                        display: 'grid', placeItems: 'center',
+                      }}>{n}</span>
+                    ) : null}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+
+  const order = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0 }}>
         <h2>{existing ? 'New round' : 'Order'}</h2>
-        {error ? <Banner tone="danger">{error}</Banner> : null}
-        <div style={{ flex: 1, overflow: 'auto', display: 'grid', gap: 8, alignContent: 'start' }}>
-          {cart.length === 0 ? <EmptyState title="Nothing added yet" hint="Tap items on the menu." /> : cart.map((l) => (
-            <div key={l.key} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8, display: 'grid', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontWeight: 600 }}>{l.item.name}</span>
-                <span className="money">{money(lineTotal(l))}</span>
-              </div>
-              {l.modifiers.length ? <span className="faint" style={{ fontSize: 13 }}>{l.modifiers.map((m) => m.name).join(' · ')}</span> : null}
-              {l.note ? <span className="faint" style={{ fontSize: 13 }}>{l.note}</span> : null}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button style={step} onClick={() => setCart((c) => c.flatMap((x) => x.key !== l.key ? [x] : x.qty > 1 ? [{ ...x, qty: x.qty - 1 }] : []))}>−</button>
-                <span style={{ minWidth: 24, textAlign: 'center', fontWeight: 600 }}>{l.qty}</span>
-                <button style={step} onClick={() => setCart((c) => c.map((x) => x.key === l.key ? { ...x, qty: x.qty + 1 } : x))}>+</button>
-                <Button variant="ghost" style={{ marginLeft: 'auto', minHeight: 32 }} onClick={() => {
-                  const note = window.prompt('Note for the kitchen', l.note ?? '')
-                  if (note !== null) setCart((c) => c.map((x) => x.key === l.key ? { ...x, note: note.trim() || null } : x))
-                }}>Note</Button>
-                <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}>Remove</Button>
-              </div>
+        {cartCount ? <span className="muted" style={{ fontSize: 13 }}>{cartCount} item{cartCount === 1 ? '' : 's'}</span> : null}
+      </div>
+      {error ? <Banner tone="danger">{error}</Banner> : null}
+      <div style={{ flex: 1, minHeight: layout === 'stacked' ? 120 : 80, overflow: 'auto', display: 'grid', gap: 8, alignContent: 'start' }}>
+        {cart.length === 0 ? (
+          <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ fontWeight: 600 }}>Nothing added yet</div>
+            <div style={{ fontSize: 13, marginTop: 2 }}>Tap an item to add it.</div>
+          </div>
+        ) : cart.map((l) => (
+          <div key={l.key} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8, display: 'grid', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{l.item.name}</span>
+              <span className="money">{money(lineTotal(l))}</span>
             </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-          <span className="muted">{existing ? 'This round' : 'Items total'}</span>
-          <span className="money" style={{ fontWeight: 600 }}>{money(cartTotal)}</span>
-        </div>
-        <Button variant="primary" disabled={busy || cart.length === 0} onClick={() => startSend(false)}>
-          Send to kitchen
-        </Button>
+            {l.modifiers.length ? <span className="faint" style={{ fontSize: 13 }}>{l.modifiers.map((m) => m.name).join(' · ')}</span> : null}
+            {l.note ? <span className="faint" style={{ fontSize: 13 }}>{l.note}</span> : null}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button style={step} aria-label="One less" onClick={() => setCart((c) => c.flatMap((x) => x.key !== l.key ? [x] : x.qty > 1 ? [{ ...x, qty: x.qty - 1 }] : []))}>−</button>
+              <span style={{ minWidth: 24, textAlign: 'center', fontWeight: 600 }}>{l.qty}</span>
+              <button style={step} aria-label="One more" onClick={() => setCart((c) => c.map((x) => x.key === l.key ? { ...x, qty: x.qty + 1 } : x))}>+</button>
+              <Button variant="ghost" style={{ marginLeft: 'auto', minHeight: 32 }} onClick={() => {
+                const note = window.prompt('Note for the kitchen', l.note ?? '')
+                if (note !== null) setCart((c) => c.map((x) => x.key === l.key ? { ...x, note: note.trim() || null } : x))
+              }}>Note</Button>
+              <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}>Remove</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--border)', paddingTop: 10, flexShrink: 0 }}>
+        <span className="muted">{existing ? 'This round' : 'Items total'}</span>
+        <span className="money" style={{ fontWeight: 700, fontSize: 20 }}>{money(cartTotal)}</span>
+      </div>
+      <Button variant="primary" style={{ minHeight: 48, fontSize: 16, flexShrink: 0 }} disabled={busy || cart.length === 0} onClick={() => startSend(false)}>
+        Send to kitchen
+      </Button>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {operator?.canSaveWithoutKot ? (
-          <Button disabled={busy || cart.length === 0} onClick={() => startSend(true)}>Save without KOT</Button>
+          <Button style={{ flex: 1, ...rowButton }} disabled={busy || cart.length === 0} onClick={() => startSend(true)}>Save without KOT</Button>
         ) : null}
         <Button
           variant="ghost"
+          style={{ flex: 1, ...rowButton }}
           onClick={() => existing
             ? navigate('/billing', { state: { orderId: existing.id } })
             // A new order goes back where it started — usually the floor.
             : canGoBack ? navigate(-1) : navigate('/floor')}
         >Cancel</Button>
-      </section>
+      </div>
+    </>
+  )
+
+  const card: React.CSSProperties = { padding: 14, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, minWidth: 0 }
+
+  return (
+    <div ref={setBox} style={{
+      display: 'grid', gap, minHeight: 0,
+      height: layout === 'stacked' ? 'auto' : '100%',
+      gridTemplateColumns: layout === 'wide' ? `280px minmax(0, 1fr) ${panelW}px`
+        : layout === 'split' ? `minmax(0, 1fr) ${panelW}px` : 'minmax(0, 1fr)',
+    }}>
+      {layout === 'wide' ? (
+        <>
+          <section className="card" style={{ ...card, padding: 16, overflowY: 'auto', overflowX: 'hidden' }}>{details}</section>
+          {menu}
+          <section className="card" style={{ ...card, padding: 16 }}>{order}</section>
+        </>
+      ) : (
+        <>
+          {menu}
+          <section className="card" style={card}>
+            {/* Order details sit above the order; they scroll on their own if a long table list needs it. */}
+            <div style={{ flexShrink: 0, maxHeight: layout === 'split' ? '46%' : undefined, overflowY: 'auto', overflowX: 'hidden' }}>{details}</div>
+            <div style={{ borderTop: '1px solid var(--border)', flexShrink: 0 }} />
+            {order}
+          </section>
+        </>
+      )}
 
       {picking ? (
         <ModifierModal
@@ -525,4 +699,20 @@ const chip = (on: boolean): React.CSSProperties => ({
 const step: React.CSSProperties = {
   width: 32, height: 32, borderRadius: 'var(--r-button)', border: '1px solid var(--border-strong)',
   background: 'var(--surface)', cursor: 'pointer', fontWeight: 700,
+}
+
+/** The element's content width, kept current as the window or the panel resizes. */
+function useWidth(el: HTMLElement | null) {
+  const [width, setWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth - 32))
+  useEffect(() => {
+    if (!el) return
+    setWidth(el.clientWidth)
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) setWidth(Math.round(w))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el])
+  return width
 }

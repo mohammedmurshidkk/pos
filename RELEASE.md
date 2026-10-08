@@ -39,15 +39,15 @@ Use the desktop version for the git tag in step 3, so the tag and the file name 
 cd ~/WorkSpace/pos
 pnpm -r test && pnpm -r typecheck
 git add -A
-git commit -m "Release 0.4.0"
+git commit -m "Release 0.7.0"
 git push origin main
 ```
 
 ### 3. Tag — this starts both builds
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
 A tag can be used once. If a build fails, fix it, commit, push, and use the next

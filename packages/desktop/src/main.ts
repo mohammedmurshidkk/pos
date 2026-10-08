@@ -45,6 +45,8 @@ function useDataFolder() {
 let window: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
+/** Kiosk is restored with the window, not dropped by minimising. */
+let kioskBeforeMinimize = false
 
 /**
  * Two copies of the hub would fight over the database and the invoice counter,
@@ -156,6 +158,11 @@ async function loadUi(attempts = 3) {
  *
  * POS_KIOSK=0 starts windowed, for development.
  */
+/**
+ * Update 2026-10-08: the window has no native frame. The UI draws its own title
+ * bar on every screen, sign-in included, with minimise, full screen on/off and
+ * close — kiosk still hides the taskbar, but the till is no longer a trap.
+ */
 const START_KIOSK = process.env.POS_KIOSK !== '0'
 
 function createWindow() {
@@ -170,6 +177,8 @@ function createWindow() {
     // The packaged .exe already carries the icon; this covers `pnpm start`.
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
+    // The UI's own title bar replaces it (TitleBar.tsx), in kiosk and windowed.
+    frame: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -189,6 +198,13 @@ function createWindow() {
     window?.hide()
   })
 
+  // Minimising a full-screen till should come back full screen, taskbar hidden.
+  window.on('minimize', () => { kioskBeforeMinimize = window?.isKiosk() ?? false })
+  window.on('restore', () => {
+    if (kioskBeforeMinimize && window && !window.isKiosk()) setKiosk(true)
+    kioskBeforeMinimize = false
+  })
+
   // Anything that is not the app opens in the real browser, not in our window.
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -199,6 +215,10 @@ function createWindow() {
 /** Kiosk on/off for the UI's user menu — see preload.ts. */
 ipcMain.handle('kiosk:get', () => window?.isKiosk() ?? false)
 ipcMain.handle('kiosk:set', (_e, on: unknown) => setKiosk(on === true))
+// The title bar's buttons. Close goes through the 'close' handler above, so it
+// hides to the tray and the hub keeps serving tablets.
+ipcMain.handle('window:minimize', () => { window?.minimize() })
+ipcMain.handle('window:close', () => { window?.close() })
 
 function setKiosk(on: boolean) {
   if (!window) return false
@@ -207,6 +227,7 @@ function setKiosk(on: boolean) {
   if (!on) window.maximize()
   log('kiosk', on)
   buildTrayMenu()
+  window.webContents.send('kiosk:changed', window.isKiosk())
   return window.isKiosk()
 }
 

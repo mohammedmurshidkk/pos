@@ -2,9 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider, createHashRouter, Navigate } from 'react-router-dom'
 import './theme/tokens.css'
+import './fitWidth'
 import { Shell } from './components/Shell'
 import { AdminGate } from './components/AdminGate'
 import { SuperadminDoor } from './components/SuperadminDoor'
+import { TitleBar } from './components/TitleBar'
 import { Billing } from './screens/Billing'
 import { Bills } from './screens/Bills'
 import { Reports } from './screens/Reports'
@@ -46,8 +48,19 @@ const router = createHashRouter([
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* Above the router: it must work while the sign-in screen is showing. */}
-    <SuperadminDoor />
-    <RouterProvider router={router} />
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Desktop app only: the window has no native frame. */}
+      <TitleBar />
+      {/*
+        The transform makes this box the containing block for every
+        position: fixed overlay below (modals, the More sheet, superadmin), so
+        they sit under the title bar instead of covering it.
+      */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', transform: 'translateZ(0)', overflow: 'auto' }}>
+        {/* Above the router: it must work while the sign-in screen is showing. */}
+        <SuperadminDoor />
+        <RouterProvider router={router} />
+      </div>
+    </div>
   </StrictMode>,
 )

@@ -360,6 +360,20 @@ cannot reach its own hub. Rebuild before any Windows test.
 > spooler (bytes appended to `<name>.bin`). Shift close now refuses while any
 > order is open or billed; cash settle needs an amount. Server tests 263 → 275.
 
+> **Update 2026-10-08:** **window title bar.** The Electron window has no native
+> frame (`frame: false`); the UI draws a 40px bar above everything
+> (`admin/src/components/TitleBar.tsx`, desktop only) on every screen, sign-in
+> included: **minimise** (comes back full screen), **full screen ⇄ window**
+> (kiosk on/off, no PIN — minimise and close already reach the desktop) and
+> **close** (asks, then hides to the tray; the hub keeps running). Overlays sit
+> under the bar because the app's box below it has `transform` (it becomes the
+> containing block for `position: fixed`), so screens use `minHeight: '100%'`,
+> not `100vh`. Bridge methods: `minimize`, `close`, `onKioskChange` in
+> `desktop/src/preload.ts`, typed in `admin/src/desktop.ts`. Closing the shift
+> now shows **Counter closed** (sales, expected/counted, over/short, backup
+> result) before the open-counter screen (`CounterClosed` in `OpenCounter.tsx`,
+> `closedShift` in the store).
+
 Never verified: **the installer on real Windows**, **a real thermal printer**,
 **the APK on a real tablet**.
 

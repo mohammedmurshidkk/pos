@@ -144,6 +144,17 @@ The fallback when a tablet breaks, and the normal path for walk-in takeaway. Ope
 - The signed-in cashier is `created_by`; the chosen waiter gets the sales credit (`waiter_id`, set right after the first send)
 - **Save without KOT** only for someone with `can_save_without_kot`
 
+> **Update 2026-10-08:** **Layout redone for small POS monitors.** On a 1024×768 counter screen the wall of category chips filled the menu column and only one item was visible.
+> - Layout follows the screen's own width: **≥ 1440 px** three columns (details · menu · order); **760–1439 px** the menu plus one side panel holding order type, customer fields and the order; **< 760 px** stacked
+> - Categories are a **slim scrolling rail** beside the items, each with its item count. When the menu is narrower than 560 px they become one row of tabs that scrolls sideways. No more wrapping wall of chips
+> - The item grid fills the height. A tile shows the quantity already in the order as a badge at the end of its price row; the name keeps two full lines
+> - **Search spans all categories** (results show each item's category), has a clear (×) button, **Esc** clears it, **Enter** adds the item when only one match is left
+> - Dine-in in the side panel: a "Tables · N" label above a compact table grid that scrolls on its own, so the order stays on screen
+> - **Send to kitchen** is larger; **Save without KOT** and **Cancel** share one row below it
+> - `admin/src/screens/OrderEntry.tsx`, `admin/src/components/CustomerFields.tsx` (phone and name side by side in the panel)
+
+> **Update 2026-10-08 (2):** **Narrow windows scale down instead of being cut off.** The UI needs 1024 CSS px (`body { min-width: 1024px }`), but a 1024×768 POS monitor with Windows display scaling at 125% gives the window only ~819. The right side of every screen (the order, Send to kitchen, More) went off screen. Below 1024 px the whole page is now zoomed to fit the width, like Ctrl + minus (`admin/src/fitWidth.ts`). At 1024 px and wider nothing changes.
+
 ## A17 · Customers — P1
 Search by phone. Detail: name, phone, addresses, order history. Created automatically from delivery orders.
 

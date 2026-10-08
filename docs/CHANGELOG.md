@@ -3,6 +3,15 @@
 Newest first. The docs keep the old text with a dated **Update** block under it
 (see "Keeping the docs" in `CLAUDE.md`); this file is the index of those changes.
 
+## 2026-10-08
+
+| Area | Change | Where |
+|---|---|---|
+| Shift close | **Counter closed** screen after closing the shift (sales, expected and counted cash, over/short, backup result), then OK to the open-counter screen or Sign out. Was: the Shift screen silently turned into "Open the counter" | `admin/src/screens/OpenCounter.tsx`, `Shift.tsx`, `components/Shell.tsx`, `store.ts` |
+| Desktop window | **Own title bar** on every screen incl. sign-in: minimise, full screen ⇄ window, close (confirms, hides to tray, hub keeps running). Window is frameless; still opens in kiosk with the taskbar hidden | `admin/src/components/TitleBar.tsx`, `admin/src/main.tsx`, `desktop/src/main.ts`, `preload.ts` |
+| Counter New order | **Redesigned for 1024×768 POS monitors**: layout by the screen's own width (≥1440 three columns; 760–1439 menu + one side panel with order type, customer and order; <760 stacked); categories as a slim scrolling rail with item counts (a sideways-scrolling tab row below 560 px) instead of a wrapping wall of chips; item grid fills the height, tiles show the quantity already in the order; search spans all categories with clear button, Esc clears, Enter adds a single match; larger Send to kitchen, Save without KOT and Cancel on one row | `admin/src/screens/OrderEntry.tsx`, `admin/src/components/CustomerFields.tsx`, `docs/03-screens.md` A-ORDER |
+| All screens | A window narrower than 1024 CSS px (e.g. a 1024×768 monitor at 125% Windows scaling) is zoomed to fit instead of being cut off on the right | `admin/src/fitWidth.ts`, `admin/src/main.tsx`, `docs/03-screens.md` A-ORDER |
+
 ## 2026-10-05
 
 | Area | Change | Where |

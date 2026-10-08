@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError, api } from '../api/client'
+import type { ZReport } from '../api/types'
 import { Banner, Button, Field, inputStyle } from '../components/ui'
 import { useStore } from '../store'
 
@@ -40,7 +41,7 @@ export function OpenCounter({ onOpened }: { onOpened: () => void }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div className="card" style={{ width: 560, maxWidth: '100%', padding: 32, display: 'grid', gap: 20 }}>
         <div>
           <h1>Open the counter</h1>
@@ -93,6 +94,73 @@ export function OpenCounter({ onOpened }: { onOpened: () => void }) {
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Shown once, straight after the shift is closed, before the open-counter
+ * screen. Without it the Shift screen just turned into "Open the counter" and
+ * cashiers could not tell whether the close had worked.
+ */
+export function CounterClosed({ closed, onDone }: {
+  closed: { report: ZReport; backupError: string | null }
+  onDone: () => void
+}) {
+  const { money, signOut } = useStore()
+  const { report, backupError } = closed
+  const variance = report.cash.variance
+
+  return (
+    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div className="card" style={{ width: 520, maxWidth: '100%', padding: 32, display: 'grid', gap: 20 }}>
+        <div style={{ display: 'grid', justifyItems: 'center', gap: 12, textAlign: 'center' }}>
+          <span style={{
+            width: 72, height: 72, borderRadius: 36, display: 'grid', placeItems: 'center',
+            background: 'color-mix(in srgb, var(--success) 14%, var(--surface))', color: 'var(--success)',
+          }}>
+            <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden>
+              <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2.5" fill="none"
+                strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <h1>Counter closed</h1>
+          <div className="muted">
+            {report.counterName} · {report.cashierName}. This shift is finished.
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 16, display: 'grid', gap: 8, background: 'var(--surface-alt)' }}>
+          <Row label="Total sales" value={money(report.grandTotal)} />
+          <Row label="Expected in drawer" value={money(report.cash.expected)} />
+          {report.cash.counted != null ? <Row label="Counted cash" value={money(report.cash.counted)} /> : null}
+          {variance != null ? (
+            <Row
+              label={variance === 0 ? 'Drawer balanced' : variance > 0 ? 'Over' : 'Short'}
+              value={money(variance)}
+              tone={variance === 0 ? 'var(--success)' : 'var(--danger)'}
+            />
+          ) : null}
+        </div>
+
+        {backupError
+          ? <Banner tone="warning">The backup failed. Check Settings → Backup. ({backupError})</Banner>
+          : <Banner tone="success">Backup written.</Banner>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
+          <Button onClick={() => { onDone(); signOut() }} style={{ minHeight: 52 }}>Sign out</Button>
+          <Button variant="primary" onClick={onDone} style={{ minHeight: 52 }}>OK</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Row({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+      <span className="muted" style={{ color: tone }}>{label}</span>
+      <span className="money" style={{ color: tone, fontWeight: 600 }}>{value}</span>
     </div>
   )
 }

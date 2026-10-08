@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from './api/client'
-import type { Bootstrap, Employee, Printer } from './api/types'
+import type { Bootstrap, Employee, Printer, ZReport } from './api/types'
 
 interface State {
   data: Bootstrap | null
@@ -29,6 +29,12 @@ interface State {
   adminUnlocked: boolean
   setAdminUnlocked: (unlocked: boolean) => void
   setCounter: (id: string) => void
+  /**
+   * The shift that was just closed. While set, Shell shows "Counter closed"
+   * instead of jumping straight to the open-counter screen.
+   */
+  closedShift: { report: ZReport; backupError: string | null } | null
+  setClosedShift: (closed: State['closedShift']) => void
   money: (minor: number) => string
   employeeName: (id: string | null | undefined) => string
 }
@@ -52,6 +58,7 @@ export const useStore = create<State>((set, get) => ({
   jobCounts: {},
   queueOpen: false,
   adminUnlocked: false,
+  closedShift: null,
   operator: restoreOperator(),
   counterId: null,
   error: null,
@@ -121,6 +128,7 @@ export const useStore = create<State>((set, get) => ({
     set({ operator: null, adminUnlocked: false })
   },
   setAdminUnlocked: (adminUnlocked) => set({ adminUnlocked }),
+  setClosedShift: (closedShift) => set({ closedShift }),
   setCounter: (id) => {
     try { localStorage.setItem(COUNTER_KEY, id) } catch { /* ignore */ }
     set({ counterId: id })

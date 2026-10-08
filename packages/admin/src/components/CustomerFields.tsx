@@ -41,10 +41,12 @@ export function CustomerFields({ phone, name, onPhone, onName, onFound, autoFocu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
 
+  // Side by side in a narrow panel: let both inputs shrink with their column instead of overflowing it.
+  const fill: React.CSSProperties = { ...inputStyle, width: '100%', minWidth: 0 }
   const phoneField = (
     <Field label="Phone">
       <input
-        style={inputStyle} inputMode="tel" value={phone} autoFocus={autoFocus}
+        style={row ? fill : inputStyle} inputMode="tel" value={phone} autoFocus={autoFocus}
         placeholder="050 123 4567" onChange={(e) => onPhone(e.target.value)}
       />
     </Field>
@@ -58,14 +60,14 @@ export function CustomerFields({ phone, name, onPhone, onName, onFound, autoFocu
   ) : null
   const nameField = (
     <Field label="Name">
-      <input style={inputStyle} value={name} onChange={(e) => onName(e.target.value)} />
+      <input style={row ? fill : inputStyle} value={name} onChange={(e) => onName(e.target.value)} />
     </Field>
   )
 
   if (row) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' }}>
-        <div style={{ display: 'grid', gap: 4 }}>{phoneField}{status}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gap: 4, minWidth: 0 }}>{phoneField}{status}</div>
         {nameField}
       </div>
     )

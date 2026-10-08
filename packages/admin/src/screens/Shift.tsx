@@ -13,13 +13,12 @@ import { ExpenseModal } from './Expenses'
  * rather than a single "variance" number to be taken on trust.
  */
 export function Shift() {
-  const { data, operator, counterId, money } = useStore()
+  const { data, operator, counterId, money, setClosedShift } = useStore()
   const [shiftId, setShiftId] = useState<string | null>(null)
   const [report, setReport] = useState<ZReport | null>(null)
   const [float, setFloat] = useState('500')
   const [counted, setCounted] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
   const [payingOut, setPayingOut] = useState(false)
 
   const decimals = data?.settings.currencyDecimals ?? 2
@@ -57,7 +56,6 @@ export function Shift() {
       <div style={{ display: 'grid', gap: 16, maxWidth: 520 }}>
         <h1>Open Shift</h1>
         {error ? <Banner tone="danger">{error}</Banner> : null}
-        {done ? <Banner tone="success">{done}</Banner> : null}
         <div className="card" style={{ padding: 20, display: 'grid', gap: 16 }}>
           <Field label="Opening float">
             <input style={{ ...inputStyle, textAlign: 'right' }} value={float} onChange={(e) => setFloat(e.target.value)} />
@@ -66,7 +64,6 @@ export function Shift() {
             if (!guard()) return
             try {
               await api.openShift({ counterId: counterId!, employeeId: operator!.id, openingFloat: toMinor(float) })
-              setDone(null)
               await refresh()
             } catch (e) {
               setError(e instanceof ApiError ? e.message : 'Something went wrong.')
@@ -168,11 +165,12 @@ export function Shift() {
             if (!guard()) return
             try {
               const res = await api.closeShift(shiftId, { countedCash: toMinor(counted), employeeId: operator!.id })
-              setDone(res.backupPath
-                ? 'Shift closed. Backup written.'
-                : `Shift closed, but the backup failed. Check Settings → Backup.${res.backupError ? ` (${res.backupError})` : ''}`)
               setCounted('')
-              await refresh()
+              // Shell takes over: "Counter closed", then the open-counter screen.
+              setClosedShift({
+                report: res.report,
+                backupError: res.backupPath ? null : res.backupError ?? 'The backup was not written.',
+              })
             } catch (e) {
               setError(e instanceof ApiError ? e.message : 'Something went wrong.')
             }

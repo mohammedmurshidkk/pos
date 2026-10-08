@@ -53,7 +53,7 @@ export function Login() {
   }, [pin, picked])
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div className="card" style={{ width: 760, maxWidth: '100%', padding: 32, display: 'grid', gap: 20 }}>
         <div>
           <h1>{data?.settings.businessName ?? brand.productName}</h1>
