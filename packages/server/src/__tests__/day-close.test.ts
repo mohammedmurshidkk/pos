@@ -40,7 +40,9 @@ function sell(paymentModeId: string, cashier: string) {
   const o = createOrder({ type: 'takeaway', createdBy: ids.rahul! })!
   addItems(o.id, [{ itemId: ids.alfaham!, qty: 1 }], ids.rahul!)
   sendToKitchen(o.id, ids.rahul!)
-  settle(o.id, { payments: [{ paymentModeId, amount: 8500 }], employeeId: cashier, counterId: ids.counter! })
+  // Card modes need an approval number.
+  const refNo = paymentModeId === ids.sbi ? 'TEST-REF' : undefined
+  settle(o.id, { payments: [{ paymentModeId, amount: 8500, refNo }], employeeId: cashier, counterId: ids.counter! })
 }
 
 /** One whole shift: float, sales, a payout, then close with the drawer `off` by that much. */
