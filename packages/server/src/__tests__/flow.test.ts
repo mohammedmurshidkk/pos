@@ -130,6 +130,37 @@ describe('settlement', () => {
     expect(p.openDrawer).toBe(true)
   })
 
+  it('settles without printing when asked, still numbering the invoice and popping the drawer', () => {
+    const id = openOrder()
+    const total = getOrder(id)!.total
+    const r = settle(id, {
+      payments: [{ paymentModeId: ids.cash!, amount: total }],
+      employeeId: ids.fatima!, counterId: ids.counter!, print: false,
+    })
+    expect(r).toMatchObject({ settled: true, printed: false })
+    expect(r.invoiceNo).toBeTruthy()
+    expect(jobsFor(id).map((j) => j.kind)).toEqual(['drawer'])
+    expect(getOrder(id)!.lastPrintedAt).toBeNull()
+
+    // The bill can still be printed afterwards, with the payments on it.
+    printBill(id, ids.fatima!, ids.counter!)
+    const bill = jobsFor(id).at(-1)!
+    expect(bill.kind).toBe('bill')
+    expect(payloadOf(bill).payments).toEqual([{ name: 'Cash', amount: total }])
+  })
+
+  it('settles a changed bill without printing a revised one when asked', () => {
+    const id = openOrder()
+    printBill(id, ids.rahul!, ids.counter!)
+    addItems(id, [{ itemId: ids.juice!, qty: 1 }], ids.rahul!)
+    const r = settle(id, {
+      payments: [{ paymentModeId: ids.sbi!, amount: getOrder(id)!.total, refNo: '1234' }],
+      employeeId: ids.fatima!, counterId: ids.counter!, print: false,
+    })
+    expect(r.printed).toBe(false)
+    expect(jobsFor(id).map((j) => j.kind)).toEqual(['bill'])
+  })
+
   it('prints a REVISED bill at settlement when the order changed after printing', () => {
     const id = openOrder()
     printBill(id, ids.rahul!, ids.counter!)

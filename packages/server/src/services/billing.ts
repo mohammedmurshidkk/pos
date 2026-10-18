@@ -226,6 +226,12 @@ export function settle(
     counterId: string
     /** Asked at the till. Saved as a customer, unique by phone, for CRM later. */
     customer?: { name?: string | null; phone?: string | null } | null
+    /**
+     * false = settle without printing the bill ("Settle" next to "Settle &
+     * print bill"). The invoice number is still allocated; the bill can be
+     * printed later from Bills. Cash still pops the drawer. Defaults to true.
+     */
+    print?: boolean
   },
 ) {
   requireEmployee(input.employeeId)
@@ -292,7 +298,7 @@ export function settle(
     return { settled: false, paid, balanceDue: current.total - paid }
   }
 
-  const needsPrint = !wasPrinted || current.dirtySincePrint
+  const needsPrint = input.print !== false && (!wasPrinted || current.dirtySincePrint)
   const reprintCount = wasPrinted && needsPrint ? current.reprintCount + 1 : current.reprintCount
 
   db.update(s.orders).set({

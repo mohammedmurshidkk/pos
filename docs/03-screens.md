@@ -70,6 +70,8 @@ Where the cashier lives. Two panes.
 
 > **Update 2026-10-05:** **Cash needs an amount.** With Cash selected, an empty amount no longer means "the full total" — the cashier types the cash received or taps **Exact** or a chip (50, 100…); until then Settle stays disabled and the dialog says "Enter the cash received, or tap Exact." An empty amount had been settling cash nobody entered. Card and other modes still settle the remaining total from an empty amount, since the terminal charges the exact amount.
 
+> **Update 2026-10-18:** **Settle with or without printing.** When the customer has no bill yet, the dialog shows two buttons: **Settle** (settle without printing) and **Settle & print bill** (primary). When the bill has already been printed and nothing changed since, there is one **Settle** button, as before. A bill that changed after printing also gets both buttons (**Settle** and **Settle & print revised bill**), since the customer's copy is out of date. Settling without printing still numbers the invoice and still opens the cash drawer for cash; the bill can be printed later from **Bills**. Hub: `POST /api/orders/:id/settle` takes `print: false` (default `true`).
+
 ## A05 · Floor view — P1
 Area tabs → table grid, same visual language as the waiter app so support can talk staff through it.
 - Tile: table name, status colour + label, order count badge, elapsed, total

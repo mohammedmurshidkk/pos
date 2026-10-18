@@ -3,6 +3,12 @@
 Newest first. The docs keep the old text with a dated **Update** block under it
 (see "Keeping the docs" in `CLAUDE.md`); this file is the index of those changes.
 
+## 2026-10-18
+
+| Area | Change | Where |
+|---|---|---|
+| Settle | **Settle** (no printing) next to **Settle & print bill** when no bill was printed yet, or **Settle & print revised bill** when it changed since; one **Settle** when the printed bill is current. Without printing, the invoice is still numbered and cash still opens the drawer; print later from Bills. `settle` takes `print: false` | `admin/src/screens/Settle.tsx`, `server/src/services/billing.ts`, `docs/03-screens.md` A04 |
+
 ## 2026-10-08
 
 | Area | Change | Where |

@@ -131,6 +131,8 @@ export const api = {
     payments: { paymentModeId: string; amount: number; refNo?: string | null }[]
     employeeId: string; counterId: string
     customer?: { name?: string | null; phone?: string | null } | null
+    /** false settles without printing the bill. */
+    print?: boolean
   }) => post<{ settled: boolean; paid: number; changeDue?: number; balanceDue?: number; invoiceNo?: number | null; printed?: boolean }>(
     `/api/orders/${orderId}/settle`, body,
   ),

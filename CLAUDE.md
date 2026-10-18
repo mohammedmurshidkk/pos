@@ -251,6 +251,11 @@ kitchen` (header-mapped, `kitchen` optional). Full reference: `docs/05-menu-impo
 > **Update 2026-10-04:** the bill no longer prints the kitchen note ("no onion").
 > Notes print on the KOT only; modifiers still print on both (`renderBill` in
 > `server/src/templates.ts`, covered by `escpos.test.ts`).
+> **Update 2026-10-18:** the cashier can **settle without printing** — the
+> Settle dialog shows **Settle** beside **Settle & print bill** (or *revised
+> bill*) whenever the customer's bill is missing or out of date; one **Settle**
+> when it is current. `settle` takes `print: false`; the invoice number is still
+> allocated and cash still pops the drawer. Print later from Bills.
 - **No payment without an open shift.** `settle` refuses when the counter has no
   open shift. A shift-less payment would be on no Z-report. Payment rows carry
   the settling `counterId`, `shiftId` and cashier; the order's `counterId` becomes

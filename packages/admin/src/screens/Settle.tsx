@@ -30,7 +30,7 @@ export function Settle({ order, onClose, onSettled }: {
   const [phone, setPhone] = useState(order.phoneSnapshot ?? '')
   const [name, setName] = useState(order.customerName ?? '')
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'print' | 'plain' | null>(null)
 
   const mode = modes.find((m) => m.id === modeId)
   const decimals = data?.settings.currencyDecimals ?? 2
@@ -66,20 +66,26 @@ export function Settle({ order, onClose, onSettled }: {
     setError(null)
   }
 
-  const settle = async () => {
+  // The printed bill is the tax invoice. With no bill printed yet (or one that
+  // is out of date since) the cashier chooses: settle and print it, or just
+  // settle — the bill can still be printed later from Bills. A customer who
+  // already holds the current bill gets one plain Settle.
+  const billOutstanding = order.invoiceNo == null || order.dirtySincePrint
+
+  const settle = async (print: boolean) => {
     if (!operator || !counterId) return setError('Sign in at the counter first.')
     if (needsRef) return setError(`${mode?.name} needs an approval or reference number.`)
     if (needsCash) return setError('Enter the cash received, or tap Exact.')
-    setBusy(true)
+    setBusy(print ? 'print' : 'plain')
     setError(null)
     try {
       const customer = phone.trim() || name.trim() ? { phone: phone.trim() || null, name: name.trim() || null } : null
-      await api.settle(order.id, { payments: all, employeeId: operator.id, counterId, customer })
+      await api.settle(order.id, { payments: all, employeeId: operator.id, counterId, customer, print })
       onSettled()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
@@ -169,10 +175,17 @@ export function Settle({ order, onClose, onSettled }: {
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={busy || taken < order.total || needsRef} onClick={() => void settle()}>
-          {/* The printed bill is the tax invoice. Settling prints only if the
-              customer has no bill yet, or theirs is out of date. */}
-          {busy ? 'Settling…'
+        {billOutstanding ? (
+          <Button disabled={busy != null || taken < order.total || needsRef} onClick={() => void settle(false)}>
+            {busy === 'plain' ? 'Settling…' : 'Settle'}
+          </Button>
+        ) : null}
+        <Button
+          variant="primary"
+          disabled={busy != null || taken < order.total || needsRef}
+          onClick={() => void settle(billOutstanding)}
+        >
+          {busy === 'print' || (busy === 'plain' && !billOutstanding) ? 'Settling…'
             : order.invoiceNo == null ? 'Settle & print bill'
             : order.dirtySincePrint ? 'Settle & print revised bill'
             : 'Settle'}
