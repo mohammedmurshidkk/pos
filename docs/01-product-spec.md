@@ -230,9 +230,16 @@ Your example — 1 periperi alfaham + 1 chicken noodles + 1 apple juice — prod
 
 **Add-ons:** second round → new KOT headed `KOT #2 (ADD-ON)` containing only the new lines. Never reprint earlier lines.
 
+> **Update 2026-10-18:** **modifiers (add-ons such as Extra cheese, Spice level) are switched back on** in Setup after being hidden on 2026-10-04. An item's add-ons can now be chosen **after** it is in the order as well as when it is added: **+ Add-ons** / **Edit add-ons** on the cart line (tablet and counter), before the line is sent. A modifier group's **Max left blank means no limit** (stored as `max_select = 0`), for groups like "Preferences" with free requests such as No onion; Min still applies.
+
 **Voids after sending:** must print `*** CANCELLED ***` to the same kitchen — item, qty, who cancelled. Otherwise the kitchen cooks food nobody ordered.
 
 **KOT header must show:** order no · table + area (or TAKEAWAY / CAR / DELIVERY) · ticket label · waiter name · time · KOT seq.
+
+> **Update 2026-10-18:** three KOT changes.
+> - **KOT # is a running number** across all orders (`settings.kot_next_no`, `kot_tickets.kot_no`, migration `0015`): one per kitchen ticket, voids included, allocated like the order number and reset with it on a data reset. NEW vs ADD-ON still follows the order's own rounds (`seq`), so the header reads e.g. `KOT #57 (ADD-ON)`. Tickets queued before `0015` fall back to `seq`.
+> - **Waiter name is the waiter picked for the order**, not the cashier who keyed it at the counter. `submit` takes `waiterId`; the first send sets `orders.waiter_id` to it, and add-on rounds print the order's waiter too.
+> - **Order note** (`orders.note`, migration `0014`): an optional order-level instruction for takeaway, car and delivery ("pack sauces separately"), typed on the counter's New order. It prints in **bold, left-aligned and word-wrapped** as `NOTE: …` under the KOT header, on every kitchen ticket of the order (add-ons too). On screen it shows in Billing, the Settle dialog and Bills. It **never prints on the tax invoice**.
 
 ### 6.2 Order types
 | Type | Captures |
@@ -417,6 +424,23 @@ Top employees  Rahul 3,200 · Anees 2,850
 > ```
 - Invoice range on the Z-report — auditors ask for exactly this, and it is one query.
 - Employee figures group by **`waiter_id`**, not `created_by` — otherwise every order the cashier keyed on a waiter's behalf credits the cashier.
+
+> **Update 2026-10-18 (2):** **day close (counter close) for shops with
+> several shifts a day.** Nothing about a shift changes: each still opens with
+> its own float, takes sales and expenses, and closes with its own Z-report.
+> After the **last** shift, the cashier taps **Close day** (on *Counter closed*
+> or on *Open the counter*, counter PC only). It takes every shift closed on
+> that counter since the previous day close, whatever their length (there is
+> no clock window and no fixed shift count), and prints one **DAY CLOSE**
+> report: a section per shift (cashier, opened/closed, sales by payment mode,
+> float, cash sales, drawer expenses, expected, counted, variance), then
+> **COUNTER TOTALS**: sales by payment mode and total, expenses by category
+> (from drawer and not), cash added up over the shifts (opening floats + cash
+> sales − drawer expenses = expected; counted − expected = variance, the sum of
+> each shift's over/short), order types, waiters,
+> discounts, voids, VAT and the invoice range. It refuses while a shift is
+> open. Past day closes can be reprinted. Stored as `day_closes`, with
+> `shifts.day_close_id` (migration `0016`).
 
 ---
 

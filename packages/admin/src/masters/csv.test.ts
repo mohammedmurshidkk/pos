@@ -36,6 +36,11 @@ describe('sheetToRows', () => {
     expect('rows' in r && r.rows.map((x) => x.line)).toEqual([3, 5])
   })
 
+  it('reads an optional short name column', () => {
+    const r = sheetToRows('category,item,short name,price\nRice,Chicken Biriyani,cb,28\nRice,Plain Rice,,8\n')
+    expect('rows' in r && r.rows.map((x) => x.shortName)).toEqual(['cb', undefined])
+  })
+
   it('says which required columns are missing', () => {
     expect(sheetToRows('category,name\nA,b')).toEqual({
       error: 'The first line must name the columns. Missing: price.',
@@ -44,6 +49,7 @@ describe('sheetToRows', () => {
 
   it('round-trips its own template', () => {
     const r = sheetToRows(templateCsv(['Arabic Kitchen', 'Juice Corner']))
+    expect('rows' in r && r.rows.map((x) => x.shortName)).toEqual(['ct', 'mg', 'fo', 'lm'])
     expect('rows' in r && r.rows.map((x) => x.kitchen)).toEqual([
       'Arabic Kitchen', 'Arabic Kitchen', 'Juice Corner', 'Juice Corner',
     ])

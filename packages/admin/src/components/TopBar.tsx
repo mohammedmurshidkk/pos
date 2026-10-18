@@ -5,6 +5,7 @@ import { brand } from '../brand'
 import '../desktop'
 import { useStore } from '../store'
 import { PinConfirm } from './AdminGate'
+import { UpdatePill } from './UpdatePill'
 import { MORE, QUICK, moreScreenFor } from './nav'
 import { Banner, Button, Field, Modal, initials, inputStyle } from './ui'
 
@@ -72,6 +73,8 @@ export function TopBar() {
         </Button>
 
         <span style={{ flex: 1 }} />
+
+        <UpdatePill />
 
         <PrinterPill />
 

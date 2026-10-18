@@ -79,6 +79,24 @@ export class Receipt {
     return this
   }
 
+  /** Left-aligned text wrapped at word boundaries, for free text of any length. */
+  wrap(text: string, bold = false): this {
+    const rows: string[] = []
+    let cur = ''
+    for (const w of text.split(/\s+/).filter(Boolean)) {
+      if (cur && (cur + ' ' + w).length > this.cols) { rows.push(cur); cur = '' }
+      // A single word longer than the paper is cut rather than overflowing.
+      let word = w
+      while (word.length > this.cols) { rows.push(word.slice(0, this.cols)); word = word.slice(this.cols) }
+      cur = cur ? `${cur} ${word}` : word
+    }
+    if (cur) rows.push(cur)
+    if (bold) this.out.push(CMD.boldOn)
+    for (const r of rows) this.out.push(`${r}\n`)
+    if (bold) this.out.push(CMD.boldOff)
+    return this
+  }
+
   big(text: string): this {
     this.out.push(CMD.alignCenter + CMD.doubleOn + `${text}\n` + CMD.doubleOff + CMD.alignLeft)
     return this

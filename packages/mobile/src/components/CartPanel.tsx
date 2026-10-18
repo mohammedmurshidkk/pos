@@ -11,6 +11,9 @@ interface Props {
   onQty: (key: string, qty: number) => void
   /** Opens the note editor for a line that is already in the cart. */
   onNote?: (line: CartLine) => void
+  /** Opens the add-on sheet for a line whose item has modifier groups. */
+  onAddons?: (line: CartLine) => void
+  hasAddons?: (itemId: string) => boolean
 }
 
 /**
@@ -18,7 +21,7 @@ interface Props {
  * on a landscape tablet and inside a bottom sheet on a phone, so the two never
  * drift apart.
  */
-export function CartPanel({ lines, money, onQty, onNote }: Props) {
+export function CartPanel({ lines, money, onQty, onNote, onAddons, hasAddons }: Props) {
   if (lines.length === 0) {
     return <Text variant="body" faint style={styles.empty}>Tap an item to start.</Text>
   }
@@ -30,9 +33,15 @@ export function CartPanel({ lines, money, onQty, onNote }: Props) {
             <Text variant="body" style={styles.name} numberOfLines={2}>{l.name}</Text>
             <Text variant="money">{money(cartLineTotal(l))}</Text>
           </View>
+          {l.modifiers.length ? <Text variant="caption" muted>{l.modifiers.map((m) => m.name).join(' · ')}</Text> : null}
           {l.note ? <Text variant="caption" muted>{l.note}</Text> : null}
           <View style={styles.actions}>
             <QtyStepper qty={l.qty} onChange={(q) => onQty(l.key, q)} />
+            {onAddons && hasAddons?.(l.itemId) ? (
+              <Pressable onPress={() => onAddons(l)} style={styles.noteBtn} hitSlop={8}>
+                <Text variant="caption" style={{ color: color.primary }}>{l.modifiers.length ? 'Edit add-ons' : '+ Add-ons'}</Text>
+              </Pressable>
+            ) : null}
             {onNote ? (
               <Pressable onPress={() => onNote(l)} style={styles.noteBtn} hitSlop={8}>
                 <Text variant="caption" style={{ color: color.primary }}>{l.note ? 'Edit note' : '+ Note'}</Text>

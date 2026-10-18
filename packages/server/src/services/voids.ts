@@ -5,7 +5,7 @@ import { db, raw } from '../db.js'
 import { conflict, notFound } from '../errors.js'
 import { printQueue } from '../queue.js'
 import type { KotPayload } from '../templates.js'
-import { recalculate } from './orders.js'
+import { nextKotNo, recalculate } from './orders.js'
 import { requireEmployee } from './employees.js'
 
 const s = schema
@@ -49,10 +49,12 @@ function queueCancelTicket(
     db.select({ seq: s.kotTickets.seq }).from(s.kotTickets).where(eq(s.kotTickets.orderId, orderId)).all()
       .reduce((m, r) => Math.max(m, r.seq), 0)
 
+  const kotNo = nextKotNo()
   const payload: KotPayload = {
     kitchenName: kitchen.name,
     orderNo: order.orderNo,
     seq,
+    kotNo,
     kind: 'void',
     orderType: order.type,
     tableLabel,
@@ -65,7 +67,7 @@ function queueCancelTicket(
 
   const ticketId = newId()
   db.insert(s.kotTickets).values({
-    id: ticketId, orderId, kitchenId, seq, kind: 'void',
+    id: ticketId, orderId, kitchenId, seq, kotNo, kind: 'void',
     linesJson: JSON.stringify(payload.lines),
   }).run()
   db.insert(s.printJobs).values({

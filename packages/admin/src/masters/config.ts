@@ -15,7 +15,11 @@ interface FieldCommon {
 
 export type Field = FieldCommon & (
   | { key: string; label: string; kind: 'text'; placeholder?: string; width?: number }
-  | { key: string; label: string; kind: 'number'; min?: number; max?: number; width?: number }
+  | {
+      key: string; label: string; kind: 'number'; min?: number; max?: number; width?: number
+      /** Lets the field be left blank: saved as `as`, shown as `label` in the table. */
+      blank?: { as: number; label: string }
+    }
   | { key: string; label: string; kind: 'money'; width?: number }
   | { key: string; label: string; kind: 'bool'; width?: number }
   | {
@@ -115,12 +119,12 @@ export const MASTERS: MasterSpec[] = [
   {
     entity: 'items',
     title: 'Items',
-    hint: 'Price is what the customer pays when prices include tax.',
-    // hint: 'Price is what the customer pays when prices include tax. Tick the modifier groups an item should ask for.',
-    needs: ['categories'],
-    // needs: ['categories', 'modifierGroups'],
+    hint: 'Price is what the customer pays when prices include tax. Tick the modifier groups an item should ask for.',
+    needs: ['categories', 'modifierGroups'],
     fields: [
       { key: 'name', label: 'Name', kind: 'text', width: 220 },
+      { key: 'shortName', label: 'Short name', kind: 'text', placeholder: 'cb', width: 120,
+        help: 'Optional. A quick code to search by on the tablet and the counter — "cb" for Chicken Biriyani.' },
       { key: 'categoryId', label: 'Category', kind: 'select', from: 'categories', width: 180 },
       { key: 'price', label: 'Price', kind: 'money', width: 120 },
       { key: 'isAvailable', label: 'Available', kind: 'bool', width: 100 },
@@ -130,33 +134,36 @@ export const MASTERS: MasterSpec[] = [
     ],
     defaults: { price: 0, isAvailable: true, sort: 0, active: true },
   },
-  // Modifier groups and modifiers are hidden from Setup for now. Uncomment to bring them back.
-  // {
-  //   entity: 'modifierGroups',
-  //   title: 'Modifier groups',
-  //   hint: 'Spice level, add-ons. Minimum 1 makes the choice mandatory.',
-  //   fields: [
-  //     { key: 'name', label: 'Name', kind: 'text', width: 220 },
-  //     { key: 'minSelect', label: 'Min', kind: 'number', min: 0, max: 20, width: 80 },
-  //     { key: 'maxSelect', label: 'Max', kind: 'number', min: 1, max: 20, width: 80 },
-  //     { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 80 },
-  //     { key: 'active', label: 'Active', kind: 'bool', width: 90 },
-  //   ],
-  //   defaults: { minSelect: 0, maxSelect: 1, sort: 0, active: true },
-  // },
-  // {
-  //   entity: 'modifiers',
-  //   title: 'Modifiers',
-  //   needs: ['modifierGroups'],
-  //   fields: [
-  //     { key: 'name', label: 'Name', kind: 'text', width: 200 },
-  //     { key: 'groupId', label: 'Group', kind: 'select', from: 'modifierGroups', width: 200 },
-  //     { key: 'priceDelta', label: 'Price change', kind: 'money', width: 130 },
-  //     { key: 'sort', label: 'Order', kind: 'number', min: 0, width: 80 },
-  //     { key: 'active', label: 'Active', kind: 'bool', width: 90 },
-  //   ],
-  //   defaults: { priceDelta: 0, sort: 0, active: true },
-  // },
+  {
+    entity: 'modifierGroups',
+    title: 'Modifier groups',
+    hint: 'Spice level, add-ons. Minimum 1 makes the choice mandatory.',
+    fields: [
+      { key: 'name', label: 'Name', kind: 'text', width: 220 },
+      { key: 'minSelect', label: 'Min', kind: 'number', min: 0, max: 20, width: 80 },
+      { key: 'maxSelect', label: 'Max', kind: 'number', min: 0, max: 20, width: 100,
+        blank: { as: 0, label: 'No limit' },
+        help: 'Leave blank for no limit, e.g. a "Preferences" group of free requests like No onion.' },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'The order groups are asked in on the tablet and the counter. 1 comes first.' },
+      { key: 'active', label: 'Active', kind: 'bool', width: 90 },
+    ],
+    defaults: { minSelect: 0, maxSelect: 1, sort: 0, active: true },
+  },
+  {
+    entity: 'modifiers',
+    title: 'Modifiers',
+    needs: ['modifierGroups'],
+    fields: [
+      { key: 'name', label: 'Name', kind: 'text', width: 200 },
+      { key: 'groupId', label: 'Group', kind: 'select', from: 'modifierGroups', width: 200 },
+      { key: 'priceDelta', label: 'Price change', kind: 'money', width: 130 },
+      { key: 'sort', label: 'Display order', kind: 'number', min: 0, width: 130,
+        help: 'Where it sits inside its group on the tablet and the counter. 1 comes first.' },
+      { key: 'active', label: 'Active', kind: 'bool', width: 90 },
+    ],
+    defaults: { priceDelta: 0, sort: 0, active: true },
+  },
   {
     entity: 'areas',
     title: 'Areas',

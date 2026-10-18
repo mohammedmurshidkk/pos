@@ -14,6 +14,7 @@ import { useCart, type CartLine } from '../src/store/cart'
 import { useCatalog } from '../src/store/catalog'
 import { tileWidth, useLayout } from '../src/theme/layout'
 import { color, orderTypeColor, orderTypeLabel, radius, space, touch } from '../src/theme/tokens'
+import { searchItems } from '../src/util/itemSearch'
 
 /**
  * W06 — menu and cart, the most-used screen in the app.
@@ -28,7 +29,7 @@ export default function Menu() {
   const itemsIn = useCatalog((s) => s.itemsIn)
   const groupsForItem = useCatalog((s) => s.groupsForItem)
   const modifiersIn = useCatalog((s) => s.modifiersIn)
-  const { draft, add, setQty, setNote, subtotal, count } = useCart()
+  const { draft, add, setQty, setNote, updateLine, subtotal, count } = useCart()
 
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -36,6 +37,8 @@ export default function Menu() {
   const [noteText, setNoteText] = useState('')
   const [noteQty, setNoteQty] = useState(1)
   const [modifierFor, setModifierFor] = useState<Item | null>(null)
+  // Set when the modifier sheet is changing a line already in the cart.
+  const [modifierLine, setModifierLine] = useState<CartLine | null>(null)
   // A line already in the cart whose note is being edited. Long-press only
   // works before an item is added; this is the way back to it afterwards.
   const [lineNote, setLineNote] = useState<CartLine | null>(null)
@@ -50,11 +53,11 @@ export default function Menu() {
 
   // `data` must be in the deps: itemsIn is a stable reference, so without it
   // the grid would stay empty after the catalog finishes loading.
+  // A search looks through the whole menu, not just the open category, so a
+  // short name ("cb") finds its item wherever it sits.
   const items = useMemo(() => {
-    const list = itemsIn(categoryId)
-    if (!query.trim()) return list
-    const q = query.toLowerCase()
-    return list.filter((i) => i.name.toLowerCase().includes(q))
+    if (!query.trim()) return itemsIn(categoryId)
+    return searchItems(itemsIn(null), query)
   }, [data, categoryId, itemsIn, query])
 
   // Grid padding is space.md either side; gaps are space.md between columns.
@@ -82,6 +85,18 @@ export default function Menu() {
     setLineNote(line)
     setLineNoteText(line.note ?? '')
   }
+
+  const hasAddons = (itemId: string) => groupsForItem(itemId).length > 0
+
+  const openLineAddons = (line: CartLine) => {
+    const item = data?.items.find((i) => i.id === line.itemId)
+    if (!item) return
+    setCartOpen(false)
+    setModifierLine(line)
+    setModifierFor(item)
+  }
+
+  const closeModifiers = () => { setModifierFor(null); setModifierLine(null) }
 
   const saveLineNote = () => {
     if (lineNote) setNote(lineNote.key, lineNoteText.trim() || null)
@@ -155,7 +170,7 @@ export default function Menu() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search items"
+            placeholder="Search items or short name"
             placeholderTextColor={color.textFaint}
             style={styles.search}
           />
@@ -179,7 +194,7 @@ export default function Menu() {
           <View style={styles.cart}>
             <Text variant="heading">Current Order</Text>
             <Text variant="caption" muted>{count()} items</Text>
-            <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} />
+            <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} onAddons={openLineAddons} hasAddons={hasAddons} />
             <View style={styles.totals}>
               <Text variant="body" muted>Total</Text>
               <Text variant="moneyLarge">{money(subtotal())}</Text>
@@ -215,7 +230,7 @@ export default function Menu() {
         onClose={() => setCartOpen(false)}
         cancelLabel="Close"
       >
-        <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} />
+        <CartPanel lines={draft.lines} money={money} onQty={setQty} onNote={openLineNote} onAddons={openLineAddons} hasAddons={hasAddons} />
       </Sheet>
 
       <ModifierSheet
@@ -223,11 +238,13 @@ export default function Menu() {
         groups={modifierFor ? groupsForItem(modifierFor.id) : []}
         modifiersIn={modifiersIn}
         money={money}
+        initial={modifierLine}
         onAdd={(q, n, mods) => {
-          if (modifierFor) add(modifierFor, q, n, mods)
-          setModifierFor(null)
+          if (modifierLine) updateLine(modifierLine.key, q, n, mods)
+          else if (modifierFor) add(modifierFor, q, n, mods)
+          closeModifiers()
         }}
-        onClose={() => setModifierFor(null)}
+        onClose={closeModifiers}
       />
 
       <Sheet

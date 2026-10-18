@@ -35,6 +35,16 @@ module.exports = {
     uninstallerIcon: 'resources/icon.ico',
     include: 'installer/installer.nsh',
   },
+  // Where the installed app looks for updates (electron-updater, src/updates.ts).
+  // Writes app-update.yml into the package; CI uploads latest.yml, the .exe and
+  // its .blockmap to the GitHub release of the tag. The repo must stay public,
+  // or every shop PC would need a GitHub token.
+  publish: [{
+    provider: 'github',
+    owner: brand.updates.githubOwner,
+    repo: brand.updates.githubRepo,
+    releaseType: 'release',
+  }],
   mac: { target: ['dir'], icon: 'resources/icon.png' },
   npmRebuild: false,
   electronVersion: '33.4.11',

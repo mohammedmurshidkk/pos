@@ -59,6 +59,9 @@ export default function DeviceSettings() {
           <Text variant="label" muted>Device</Text>
           <Row label="Name" value={deviceName} />
           <Row label="App version" value={String(Constants.expoConfig?.version ?? '1.0.0')} />
+          <View style={styles.actions}>
+            <Button label="Check for Update" variant="secondary" flex={1} onPress={() => router.push('/update')} />
+          </View>
         </View>
 
         <View style={[styles.card, styles.danger]}>

@@ -67,6 +67,15 @@ with the hub's real kitchen names so they can be copied exactly.
   its byte-order mark) is read correctly.
 - At most **2000 rows** per import.
 
+> **Update 2026-10-18:** new optional column **`short name`** (also `short`,
+> `short code`, `code`, `item code`): the search code staff type on the tablet
+> and counter, e.g. `cb` for Chicken Biriyani. Up to 20 characters (longer is an
+> error). A blank cell **leaves an existing item's short name as it is**, like
+> every other import rule that never removes anything. Two rows with the same
+> short name get a warning, not an error. The plan lists short names it will set
+> or change; a row that only changes the short name is not counted as unchanged.
+> The downloaded template now has the column: `category,item,short name,price,kitchen`.
+
 ### The kitchen column
 
 - Give the kitchen **once per category**, on any line of that category. The

@@ -7,12 +7,24 @@
  */
 const brand = require('../../brand/brand.json')
 
+/**
+ * One version for the whole release: the tablet app takes the counter app's
+ * (packages/desktop/package.json, set by `pnpm release`). The versionCode is
+ * derived from it so it always goes up — Android refuses an update otherwise.
+ * Same formula as androidVersionCode() in packages/shared/src/changelog.ts.
+ */
+const { version } = require('../desktop/package.json')
+const [major, minor, patch] = version.split('.').map(Number)
+const versionCode = major * 10000 + minor * 100 + patch
+
 module.exports = ({ config }) => ({
   ...config,
   name: brand.productName,
+  version,
   icon: './assets/icon.png',
   android: {
     ...config.android,
+    versionCode,
     package: brand.ids.androidPackage,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',

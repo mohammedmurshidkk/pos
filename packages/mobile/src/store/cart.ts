@@ -43,6 +43,8 @@ interface CartState {
   setQty: (key: string, qty: number) => void
   /** Add, change or clear the kitchen note on a line already in the cart. */
   setNote: (key: string, note: string | null) => void
+  /** Change the add-ons (and qty and note) of a line already in the cart. */
+  updateLine: (key: string, qty: number, note: string | null, modifiers: CartLine['modifiers']) => void
   remove: (key: string) => void
   clear: () => void
   subtotal: () => number
@@ -119,6 +121,20 @@ export const useCart = create<CartState>((set, get) => {
       const lines = twin
         ? others.map((l) => (l === twin ? { ...l, qty: l.qty + line.qty } : l))
         : get().draft.lines.map((l) => (l.key === key ? { ...l, key: sig, note } : l))
+      set({ draft: { ...get().draft, lines } })
+      persist()
+    },
+
+    updateLine: (key, qty, note, modifiers) => {
+      const line = get().draft.lines.find((l) => l.key === key)
+      if (!line) return
+      // Same merge rule as setNote: the new signature may match another line.
+      const sig = `${line.itemId}|${note ?? ''}|${modifiers.map((m) => m.id).sort().join(',')}`
+      const others = get().draft.lines.filter((l) => l.key !== key)
+      const twin = others.find((l) => l.key === sig)
+      const lines = twin
+        ? others.map((l) => (l === twin ? { ...l, qty: l.qty + qty } : l))
+        : get().draft.lines.map((l) => (l.key === key ? { ...l, key: sig, qty, note, modifiers } : l))
       set({ draft: { ...get().draft, lines } })
       persist()
     },

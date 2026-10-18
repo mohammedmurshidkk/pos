@@ -98,6 +98,7 @@ export function Settle({ order, onClose, onSettled }: {
         </span>
       </div>
 
+      {order.note ? <Banner tone="warning">Note: {order.note}</Banner> : null}
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
       <CustomerFields row phone={phone} name={name} onPhone={setPhone} onName={setName} />

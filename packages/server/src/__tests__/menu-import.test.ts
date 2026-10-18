@@ -145,6 +145,45 @@ describe('import', () => {
   })
 })
 
+/* ─────────────────────────── short names ─────────────────────────── */
+
+describe('short name column', () => {
+  it('saves the short name on a new item', () => {
+    const plan = run([{ category: 'Rice', item: 'Chicken Biriyani', price: '28.00', shortName: ' cb ' }])
+    expect(plan.itemsToCreate).toEqual([{ category: 'Rice', name: 'Chicken Biriyani', price: 2800, shortName: 'cb' }])
+    expect(itemIn('Rice', 'Chicken Biriyani')!.shortName).toBe('cb')
+  })
+
+  it('sets a short name on an existing item without counting a price change', () => {
+    const plan = run([{ category: 'Grills', item: 'Peri Peri', price: '34.00', shortName: 'pp' }])
+    expect(plan.itemsToUpdate).toEqual([])
+    expect(plan.shortNamesToSet).toEqual([{ category: 'Grills', name: 'Peri Peri', from: null, to: 'pp' }])
+    expect(plan.unchanged).toBe(0)
+    expect(itemIn('Grills', 'Peri Peri')!.shortName).toBe('pp')
+  })
+
+  it('leaves an existing short name alone when the cell is blank', () => {
+    const plan = run([{ category: 'Grills', item: 'Peri Peri', price: '34.00', shortName: '' }])
+    expect(plan.shortNamesToSet).toEqual([])
+    expect(plan.unchanged).toBe(1)
+    expect(itemIn('Grills', 'Peri Peri')!.shortName).toBe('pp')
+  })
+
+  it('rejects a short name that is too long', () => {
+    const plan = run([{ category: 'Rice', item: 'Mutton Biriyani', price: '35.00', shortName: 'x'.repeat(21) }], true)
+    expect(plan.errors[0]!.message).toMatch(/longer than 20/)
+  })
+
+  it('warns when two rows share a short name', () => {
+    const plan = run([
+      { category: 'Rice', item: 'Mutton Biriyani', price: '35.00', shortName: 'mb' },
+      { category: 'Rice', item: 'Mushroom Biriyani', price: '25.00', shortName: 'MB' },
+    ], true)
+    expect(plan.errors).toEqual([])
+    expect(plan.warnings.some((w) => /also used on row 1/.test(w.message))).toBe(true)
+  })
+})
+
 /* ─────────────────────────── kitchens ─────────────────────────── */
 
 describe('kitchen column', () => {

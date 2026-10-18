@@ -27,6 +27,8 @@ or swap the icon, change these files and run one command. No app code changes.
 | `installerFileName` | `ZentivoPOS-Setup-<version>.exe` | — | — |
 | `dataFolder` | `%APPDATA%\Zentivo POS` (database, backups, logs) | — | — |
 | `ids.appId` / `ids.androidPackage` | Windows app id | Android package | — |
+| `updates.githubOwner` / `githubRepo` | where the counter looks for updates (GitHub Releases) | the counter fetches the tablet app from the same release | — |
+| `updates.tabletApkFileName` | — | `ZentivoPOS-Waiter-<version>.apk` on the release | — |
 
 Read by `packages/desktop/electron-builder.cjs`, `packages/desktop/src/main.ts`,
 `packages/mobile/app.config.js`, `packages/admin/vite.config.ts`,

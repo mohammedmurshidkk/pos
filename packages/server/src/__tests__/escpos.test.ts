@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Receipt, colsFor, toPrintable } from '../escpos.js'
-import { type BillPayload, renderBill, renderJob } from '../templates.js'
+import { type BillPayload, renderBill, renderJob, renderKot } from '../templates.js'
 
 describe('toPrintable', () => {
   it('keeps the minus sign on negative figures', () => {
@@ -91,5 +91,31 @@ describe('customer bill', () => {
 
   it('a drawer job kicks without printing or cutting paper', () => {
     expect(text(renderJob('drawer', {}, 80))).toBe('\x1b@\x1bp\x00\x19\x78')
+  })
+})
+
+describe('kitchen ticket', () => {
+  const kot = {
+    kitchenName: 'Main', orderNo: 7, seq: 1, kind: 'new' as const, orderType: 'takeaway' as const,
+    waiterName: 'Ali', at: '18/10 14:30', lines: [{ qty: 1, name: 'Biriyani' }],
+  }
+
+  it('prints the order note when there is one', () => {
+    expect(renderKot({ ...kot, orderNote: 'Pack sauces separately' }, 80).toString('latin1')).toContain('NOTE: Pack sauces separately')
+    expect(renderKot(kot, 80).toString('latin1')).not.toContain('NOTE:')
+  })
+
+  it('wraps a long order note left-aligned instead of centring it', () => {
+    const note = 'Customer will collect at 8pm, pack sauces separately and no onions in anything please'
+    const text = renderKot({ ...kot, orderNote: note }, 58).toString('latin1')
+    const rows = text.split('\n').filter((r) => /NOTE:|onions/.test(r))
+    expect(rows.length).toBeGreaterThan(1)
+    for (const r of rows) expect(r.replace(/\x1b[Ea][\x00\x01]/g, '').length).toBeLessThanOrEqual(32)
+    expect(text).not.toContain(`\x1ba\x01\x1bE\x01NOTE:`)
+  })
+
+  it('prints the running KOT number, falling back to the per-order seq', () => {
+    expect(renderKot({ ...kot, kotNo: 57 }, 80).toString('latin1')).toContain('KOT #57')
+    expect(renderKot(kot, 80).toString('latin1')).toContain('KOT #1')
   })
 })

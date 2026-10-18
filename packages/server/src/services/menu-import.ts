@@ -17,6 +17,8 @@ export interface MenuImportRow {
   price: string | number
   /** Optional. Matched to an existing kitchen by name — never creates one. */
   kitchen?: string | null
+  /** Optional search code ("cb"). Blank leaves an existing item's short name alone. */
+  shortName?: string | null
   sort?: number | string | null
   /** The spreadsheet line this came from, so messages match what the operator sees. */
   line?: number | null
@@ -24,8 +26,10 @@ export interface MenuImportRow {
 
 export interface MenuImportPlan {
   categoriesToCreate: { name: string; kitchen: string | null }[]
-  itemsToCreate: { category: string; name: string; price: number }[]
+  itemsToCreate: { category: string; name: string; price: number; shortName: string | null }[]
   itemsToUpdate: { category: string; name: string; from: number; to: number }[]
+  /** Existing items whose short name the sheet sets or changes. */
+  shortNamesToSet: { category: string; name: string; from: string | null; to: string }[]
   unchanged: number
   /** Blocking. Nothing is written while this is non-empty. */
   errors: { row: number; message: string }[]
@@ -63,6 +67,9 @@ export function parsePrice(raw: string | number, decimals: number): { minor: num
   if (!Number.isSafeInteger(minor)) return { error: `price "${raw}" is out of range` }
   return { minor }
 }
+
+/** Same limit as Setup → Items. */
+const SHORT_NAME_MAX = 20
 
 const key = (category: string, item: string) => `${category.toLowerCase()}\u0000${item.toLowerCase()}`
 
@@ -121,7 +128,9 @@ export function importMenu(
   /** First row that named a new category (or its kitchen) — for messages. */
   const categoryRow = new Map<string, number>()
   const kitchenRow = new Map<string, number>()
-  const planned = new Map<string, { category: string; item: string; price: number; row: number }>()
+  const planned = new Map<string, { category: string; item: string; price: number; shortName: string | null; row: number }>()
+  /** Short name (lowercased) → first row that used it, to flag a clash within the sheet. */
+  const shortNameRow = new Map<string, number>()
 
   rows.forEach((raw, i) => {
     // The caller's own line number when it sent one (a CSV skips its header
@@ -135,6 +144,11 @@ export function importMenu(
 
     const price = parsePrice(raw.price, decimals)
     if ('error' in price) return void errors.push({ row, message: price.error })
+
+    const shortName = String(raw.shortName ?? '').trim() || null
+    if (shortName && shortName.length > SHORT_NAME_MAX) {
+      return void errors.push({ row, message: `short name "${shortName}" is longer than ${SHORT_NAME_MAX} characters` })
+    }
 
     const dup = planned.get(key(category, item))
     if (dup) {
@@ -190,7 +204,13 @@ export function importMenu(
       newCategoryName.set(category.toLowerCase(), category)
       if (!categoryRow.has(category.toLowerCase())) categoryRow.set(category.toLowerCase(), row)
     }
-    planned.set(key(category, item), { category, item, price: price.minor, row })
+    if (shortName) {
+      // Not blocking: two items may share a code, but a search would show both.
+      const earlier = shortNameRow.get(shortName.toLowerCase())
+      if (earlier) warnings.push({ row, message: `short name "${shortName}" is also used on row ${earlier}` })
+      else shortNameRow.set(shortName.toLowerCase(), row)
+    }
+    planned.set(key(category, item), { category, item, price: price.minor, shortName, row })
   })
 
   // After the loop: any line of the category may have supplied the kitchen.
@@ -214,6 +234,7 @@ export function importMenu(
 
   const itemsToCreate: MenuImportPlan['itemsToCreate'] = []
   const itemsToUpdate: MenuImportPlan['itemsToUpdate'] = []
+  const shortNamesToSet: MenuImportPlan['shortNamesToSet'] = []
   let unchanged = 0
 
   for (const p of planned.values()) {
@@ -221,14 +242,21 @@ export function importMenu(
     const existing = existingCategory
       ? itemsByCategory.get(existingCategory.id)?.get(p.item.toLowerCase())
       : undefined
-    if (!existing) itemsToCreate.push({ category: p.category, name: p.item, price: p.price })
-    else if (existing.price !== p.price) {
-      itemsToUpdate.push({ category: p.category, name: p.item, from: existing.price, to: p.price })
-    } else unchanged += 1
+    if (!existing) {
+      itemsToCreate.push({ category: p.category, name: p.item, price: p.price, shortName: p.shortName })
+      continue
+    }
+    const priceChanged = existing.price !== p.price
+    const shortChanged = p.shortName != null && p.shortName !== existing.shortName
+    if (priceChanged) itemsToUpdate.push({ category: p.category, name: p.item, from: existing.price, to: p.price })
+    if (shortChanged) {
+      shortNamesToSet.push({ category: p.category, name: p.item, from: existing.shortName, to: p.shortName! })
+    }
+    if (!priceChanged && !shortChanged) unchanged += 1
   }
 
   const plan: MenuImportPlan = {
-    categoriesToCreate, itemsToCreate, itemsToUpdate, unchanged, errors, warnings, applied: false,
+    categoriesToCreate, itemsToCreate, itemsToUpdate, shortNamesToSet, unchanged, errors, warnings, applied: false,
   }
 
   if (opts.dryRun || errors.length > 0) return plan
@@ -248,10 +276,15 @@ export function importMenu(
       const catId = categoryId.get(p.category.toLowerCase())!
       const existing = itemsByCategory.get(catId)?.get(p.item.toLowerCase())
       if (!existing) {
-        db.insert(s.items).values({ id: newId(), categoryId: catId, name: p.item, price: p.price, sort: 0 }).run()
-      } else if (existing.price !== p.price) {
-        db.update(s.items).set({ price: p.price }).where(eq(s.items.id, existing.id)).run()
+        db.insert(s.items).values({
+          id: newId(), categoryId: catId, name: p.item, shortName: p.shortName, price: p.price, sort: 0,
+        }).run()
+        continue
       }
+      const change: { price?: number; shortName?: string } = {}
+      if (existing.price !== p.price) change.price = p.price
+      if (p.shortName != null && p.shortName !== existing.shortName) change.shortName = p.shortName
+      if (Object.keys(change).length > 0) db.update(s.items).set(change).where(eq(s.items.id, existing.id)).run()
     }
   })()
 
@@ -259,6 +292,7 @@ export function importMenu(
     categoriesCreated: categoriesToCreate.length,
     itemsCreated: itemsToCreate.length,
     itemsUpdated: itemsToUpdate.length,
+    shortNamesSet: shortNamesToSet.length,
     unchanged,
   })
 

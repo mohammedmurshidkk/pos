@@ -7,6 +7,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# A v* tag attaches the APK to the GitHub release of that tag. Counters download
+# it from there and hand it to their tablets (packages/desktop/src/updates.ts).
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,6 +33,9 @@ jobs:
         with:
           packages: platform-tools
       - run: pnpm install --frozen-lockfile
+      - name: Check version and release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: pnpm exec tsx tools/release.ts notes "${GITHUB_REF_NAME}" > release-notes.md
       - run: pnpm --filter @pos/mobile exec expo prebuild --platform android --clean
       - name: Build release APK
         working-directory: packages/mobile/android
@@ -37,3 +45,18 @@ jobs:
           name: waiter-apk
           path: packages/mobile/android/app/build/outputs/apk/release/*.apk
           retention-days: 30
+      # Every build is signed with the same key (prebuild's debug.keystore), which
+      # is what lets the new APK install over the old one on the tablet.
+      - name: Publish to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version=$(node -p "require('./packages/desktop/package.json').version")
+          name=$(node -p "require('./brand/brand.json').updates.tabletApkFileName")
+          cp packages/mobile/android/app/build/outputs/apk/release/app-release.apk "$name-$version.apk"
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --title "$tag" --notes-file release-notes.md --verify-tag ||
+            gh release view "$tag" >/dev/null
+          gh release upload "$tag" "$name-$version.apk" --clobber

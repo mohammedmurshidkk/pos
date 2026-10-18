@@ -5,6 +5,7 @@ import type { Customer, Item, Order, OrderType } from '../api/types'
 import { CustomerFields } from '../components/CustomerFields'
 import { Banner, Button, EmptyState, Field, Modal, initials, inputStyle } from '../components/ui'
 import { useStore } from '../store'
+import { isExactShortName, searchItems } from '../itemSearch'
 
 const TYPES: { id: OrderType; label: string; color: string }[] = [
   { id: 'dine_in', label: 'Dine-in', color: 'var(--dine-in)' },
@@ -58,12 +59,16 @@ export function OrderEntry() {
   const [customerName, setCustomerName] = useState('')
   const [known, setKnown] = useState<Customer | null>(null)
   const [address, setAddress] = useState('')
+  const [orderNote, setOrderNote] = useState('')
   /** Set while the "who is serving?" picker is open, holding which button opened it. */
   const [askingWaiter, setAskingWaiter] = useState<{ suppressKot: boolean } | null>(null)
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
   const [picking, setPicking] = useState<Item | null>(null)
+  // A cart line whose add-ons are being changed. Tapping the item only works
+  // before it is added; this is the way back to its choices afterwards.
+  const [editingLine, setEditingLine] = useState<CartLine | null>(null)
   const [openOrders, setOpenOrders] = useState<Order[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,7 +89,7 @@ export function OrderEntry() {
   const items = useMemo(() => {
     const all = (data?.items ?? []).filter((i) => i.isAvailable)
     const q = search.trim().toLowerCase()
-    if (q) return all.filter((i) => i.name.toLowerCase().includes(q))
+    if (q) return searchItems(all, q)
     return all.filter((i) => i.categoryId === activeCategory).sort((a, b) => a.sort - b.sort)
   }, [data, search, activeCategory])
 
@@ -157,16 +162,15 @@ export function OrderEntry() {
         phoneSnapshot: type === 'dine_in' ? null : phone.trim() || null,
         customerName: type === 'dine_in' ? null : customerName.trim() || null,
         addressSnapshot: type === 'delivery' ? address.trim() : null,
+        note: existing || type === 'dine_in' ? null : orderNote.trim() || null,
         lines: cart.map((l) => ({ itemId: l.item.id, qty: l.qty, note: l.note, modifiers: l.modifiers })),
         employeeId: operator.id,
+        waiterId: existing ? null : waiterId,
         suppressKot,
       })
+      // The picked waiter goes with the submit, so the KOT prints their name
+      // and the sales credit is theirs from the first send.
       const orderId = res.order?.id ?? existing?.id
-      // The first KOT credits whoever sent it, which here is the cashier.
-      // Hand the credit to the waiter who actually serves the table.
-      if (orderId && !existing && waiterId && waiterId !== operator.id) {
-        await api.setWaiter(orderId, waiterId, operator.id)
-      }
       navigate('/billing', { state: { orderId } })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the hub. Nothing was sent.')
@@ -331,6 +335,15 @@ export function OrderEntry() {
           </Field>
         </>
       ) : null}
+
+      {type !== 'dine_in' ? (
+        <Field label="Order note (optional)">
+          <input
+            style={fillInput} value={orderNote} placeholder="Extra spicy, pack sauces separately"
+            onChange={(e) => setOrderNote(e.target.value)}
+          />
+        </Field>
+      ) : null}
     </div>
   )
 
@@ -371,13 +384,17 @@ export function OrderEntry() {
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <input
           autoFocus={!existing && type !== 'delivery'}
-          placeholder="Search items…"
+          placeholder="Search items or short name…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setSearch('')
-            // One match left: Enter adds it, so a cashier can key an order without the mouse.
-            if (e.key === 'Enter' && search.trim() && items.length === 1) { tap(items[0]!); setSearch('') }
+            // One match left, or an exact short name ("cb"): Enter adds it, so a
+            // cashier can key an order without the mouse.
+            const first = items[0]
+            if (e.key === 'Enter' && search.trim() && first && (items.length === 1 || isExactShortName(first, search))) {
+              tap(first); setSearch('')
+            }
           }}
           style={{ ...inputStyle, width: '100%', height: 44, fontSize: 16, paddingRight: 44 }}
         />
@@ -492,6 +509,9 @@ export function OrderEntry() {
                 const note = window.prompt('Note for the kitchen', l.note ?? '')
                 if (note !== null) setCart((c) => c.map((x) => x.key === l.key ? { ...x, note: note.trim() || null } : x))
               }}>Note</Button>
+              {groupsFor(l.item.id).length > 0 ? (
+                <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setEditingLine(l)}>Add-ons</Button>
+              ) : null}
               <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}>Remove</Button>
             </div>
           </div>
@@ -553,6 +573,19 @@ export function OrderEntry() {
           groups={groupsFor(picking.id)}
           onClose={() => setPicking(null)}
           onAdd={(qty, note, mods) => { addToCart(picking, qty, note, mods); setPicking(null) }}
+        />
+      ) : null}
+
+      {editingLine ? (
+        <ModifierModal
+          item={editingLine.item}
+          groups={groupsFor(editingLine.item.id)}
+          initial={editingLine}
+          onClose={() => setEditingLine(null)}
+          onAdd={(qty, note, mods) => {
+            setCart((c) => c.map((x) => x.key === editingLine.key ? { ...x, qty, note, modifiers: mods } : x))
+            setEditingLine(null)
+          }}
         />
       ) : null}
 
@@ -635,23 +668,32 @@ function WaiterPicker({ employees, operatorId, busy, action, onPick, onCancel }:
 }
 
 /** Same rules as the tablet's modifier sheet: a required group must be filled before adding. */
-function ModifierModal({ item, groups, onClose, onAdd }: {
+function ModifierModal({ item, groups, initial, onClose, onAdd }: {
   item: Item
   groups: { id: string; name: string; minSelect: number; maxSelect: number }[]
+  /** A line already in the cart: start from its choices and save over it. */
+  initial?: Pick<CartLine, 'qty' | 'note' | 'modifiers'>
   onClose: () => void
   onAdd: (qty: number, note: string | null, mods: { id: string; name: string; priceDelta: number }[]) => void
 }) {
   const { data, money } = useStore()
-  const [chosen, setChosen] = useState<Record<string, string[]>>({})
-  const [qty, setQty] = useState(1)
-  const [note, setNote] = useState('')
+  const [chosen, setChosen] = useState<Record<string, string[]>>(() => {
+    const out: Record<string, string[]> = {}
+    for (const pick of initial?.modifiers ?? []) {
+      const gid = data?.modifiers.find((m) => m.id === pick.id)?.groupId
+      if (gid) out[gid] = [...(out[gid] ?? []), pick.id]
+    }
+    return out
+  })
+  const [qty, setQty] = useState(initial?.qty ?? 1)
+  const [note, setNote] = useState(initial?.note ?? '')
 
   const modsIn = (gid: string) => (data?.modifiers ?? []).filter((m) => m.groupId === gid).sort((a, b) => a.sort - b.sort)
   const toggle = (g: { id: string; maxSelect: number }, mid: string) => setChosen((prev) => {
     const cur = prev[g.id] ?? []
     if (cur.includes(mid)) return { ...prev, [g.id]: cur.filter((x) => x !== mid) }
-    if (g.maxSelect <= 1) return { ...prev, [g.id]: [mid] }
-    if (cur.length >= g.maxSelect) return prev
+    if (g.maxSelect === 1) return { ...prev, [g.id]: [mid] }
+    if (g.maxSelect > 0 && cur.length >= g.maxSelect) return prev
     return { ...prev, [g.id]: [...cur, mid] }
   })
   const ok = groups.every((g) => (chosen[g.id]?.length ?? 0) >= g.minSelect)
@@ -663,7 +705,9 @@ function ModifierModal({ item, groups, onClose, onAdd }: {
       {groups.map((g) => (
         <div key={g.id} style={{ display: 'grid', gap: 6 }}>
           <span className="label">
-            {g.name} {g.minSelect > 0 ? `· choose ${g.minSelect === g.maxSelect ? g.minSelect : `${g.minSelect}–${g.maxSelect}`}` : g.maxSelect > 1 ? `· up to ${g.maxSelect}` : '· optional'}
+            {g.name} {g.minSelect > 0
+              ? `· choose ${g.minSelect === g.maxSelect ? g.minSelect : g.maxSelect === 0 ? `${g.minSelect} or more` : `${g.minSelect}–${g.maxSelect}`}`
+              : g.maxSelect === 0 ? '· any' : g.maxSelect > 1 ? `· up to ${g.maxSelect}` : '· optional'}
           </span>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {modsIn(g.id).map((m) => (
@@ -683,7 +727,7 @@ function ModifierModal({ item, groups, onClose, onAdd }: {
         <button style={step} onClick={() => setQty((q) => q + 1)}>+</button>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!ok} onClick={() => onAdd(qty, note.trim() || null, selected)}>Add to order</Button>
+          <Button variant="primary" disabled={!ok} onClick={() => onAdd(qty, note.trim() || null, selected)}>{initial ? 'Save' : 'Add to order'}</Button>
         </span>
       </div>
     </Modal>

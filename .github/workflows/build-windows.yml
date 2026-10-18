@@ -8,6 +8,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# A v* tag publishes the installer to the GitHub release of that tag, which is
+# where installed counters look for updates (packages/desktop/src/updates.ts).
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -20,6 +25,12 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The tag, packages/desktop/package.json and CHANGELOG.md must agree, or the
+      # shops would be offered an update with the wrong number or no notes.
+      - name: Check version and release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: pnpm exec tsx tools/release.ts notes "${GITHUB_REF_NAME}" > release-notes.md
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - name: Build native module for Electron
@@ -44,3 +55,18 @@ jobs:
           name: windows-installer
           path: packages/desktop/release/*.exe
           retention-days: 30
+      # latest.yml tells installed counters there is a new version; the .blockmap
+      # lets them download only the parts that changed.
+      - name: Publish to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          # The APK workflow may have made the release already.
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --title "$tag" --notes-file release-notes.md --verify-tag ||
+            gh release view "$tag" >/dev/null
+          cd packages/desktop/release
+          gh release upload "$tag" *.exe *.exe.blockmap latest.yml --clobber

@@ -18,6 +18,11 @@ for (const { from, to } of copies) {
   console.log(`copied ${path.relative(root, from)} -> ${path.relative(root, to)}`)
 }
 
+// The release notes ship inside the app: Settings → Updates and the tablets'
+// update screen read them through the hub (server/src/services/app-update.ts).
+await copyFile(path.join(root, '../../CHANGELOG.md'), path.join(root, 'dist/CHANGELOG.md'))
+console.log('copied CHANGELOG.md -> dist/CHANGELOG.md')
+
 // Tray and window icons are loaded at runtime from beside main.cjs.
 for (const file of ['tray.png', 'icon.png']) {
   await copyFile(path.join(root, 'resources', file), path.join(root, 'dist', file))

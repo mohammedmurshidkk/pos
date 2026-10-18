@@ -440,3 +440,43 @@ describe('attribution', () => {
     expect(after.createdBy).toBe(ids.rahul)
   })
 })
+
+describe('kitchen tickets', () => {
+  const kotsOf = (orderId: string) => {
+    const tickets = db.select().from(s.kotTickets).where(eq(s.kotTickets.orderId, orderId)).all()
+    return db.select().from(s.printJobs).all()
+      .filter((j) => tickets.some((t) => t.id === j.refId))
+      .map((j) => JSON.parse(j.payloadJson) as { kotNo: number; kind: string; waiterName: string; orderNote?: string | null })
+  }
+
+  it('numbers KOTs across orders instead of restarting at 1 per order', () => {
+    const a = openOrder(); sendToKitchen(a, ids.rahul!)
+    const b = openOrder(); sendToKitchen(b, ids.rahul!)
+    addItems(b, [{ itemId: ids.alfaham!, qty: 1 }], ids.rahul!); sendToKitchen(b, ids.rahul!)
+    const [ka] = kotsOf(a)
+    const [kb1, kb2] = kotsOf(b)
+    expect(kb1!.kotNo).toBe(ka!.kotNo + 1)
+    expect(kb2!.kotNo).toBe(kb1!.kotNo + 1)
+    expect(kb2!.kind).toBe('addon')
+  })
+
+  it('prints the picked waiter, not the cashier who keyed it', () => {
+    const r = submitOrder({
+      batchRef: 'kot-waiter', type: 'takeaway', note: 'Pack sauces separately',
+      lines: [{ itemId: ids.alfaham!, qty: 1 }], employeeId: ids.fatima!, waiterId: ids.anees!,
+    })
+    expect(r.order!.waiterId).toBe(ids.anees)
+    expect(r.order!.createdBy).toBe(ids.fatima)
+    const [kot] = kotsOf(r.order!.id)
+    expect(kot!.waiterName).toBe('Anees')
+    expect(kot!.orderNote).toBe('Pack sauces separately')
+  })
+
+  it('keeps the owner on the KOT when someone else adds a round', () => {
+    const id = openOrder()
+    sendToKitchen(id, ids.rahul!)
+    addItems(id, [{ itemId: ids.juice!, qty: 1 }], ids.fatima!)
+    sendToKitchen(id, ids.fatima!)
+    expect(kotsOf(id).map((k) => k.waiterName)).toEqual(['Rahul', 'Rahul'])
+  })
+})

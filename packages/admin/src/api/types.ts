@@ -34,13 +34,14 @@ export interface Kitchen { id: string; name: string; printerId: string; active: 
 export interface Area { id: string; name: string; sort: number }
 export interface Table { id: string; areaId: string; name: string; seats: number; sort: number }
 export interface Category { id: string; name: string; kitchenId: string | null; sort: number }
-export interface Item { id: string; categoryId: string; name: string; price: number; isAvailable: boolean; sort: number }
+export interface Item { id: string; categoryId: string; name: string; shortName?: string | null; price: number; isAvailable: boolean; sort: number }
 export interface Employee {
   id: string; name: string; role: 'admin' | 'waiter'
   canSaveWithoutKot: boolean; canDiscount: boolean
   /** Whether a PIN is set — the hash itself never leaves the hub. */
   hasPin?: boolean
 }
+/** maxSelect 0 means no limit. */
 export interface ModifierGroup { id: string; name: string; minSelect: number; maxSelect: number; sort: number }
 export interface Modifier { id: string; groupId: string; name: string; priceDelta: number; sort: number }
 export interface Counter { id: string; name: string }
@@ -100,6 +101,7 @@ export interface Order {
   tableId: string | null; ticketLabel: string | null
   vehicleNo: string | null; phoneSnapshot: string | null
   customerId: string | null; customerName: string | null; addressSnapshot: string | null
+  note: string | null
   billedAt: string | null
   waiterId: string | null; createdBy: string; openedAt: string
   subtotal: number; discountAmount: number; discountType: string
@@ -165,9 +167,39 @@ export interface ZReport {
   invoiceRange: { from: number | null; to: number | null; count: number }
 }
 
+/** Mirrors `DayReport` in the server's day-close service. */
+export interface DayReport {
+  dayCloseId: string | null
+  counterName: string
+  closedBy: string | null
+  closedAt: string | null
+  from: string | null
+  to: string | null
+  shifts: ZReport[]
+  totals: {
+    paymentModes: { name: string; type: string; count: number; total: number }[]
+    grandTotal: number
+    cash: { openingFloats: number; cashSales: number; drawerExpenses: number; expected: number; counted: number; variance: number }
+    expenses: { drawer: number; other: number; total: number; byCategory: { category: string; count: number; total: number }[] }
+    orderTypes: { type: string; count: number; total: number }[]
+    waiters: { name: string; orders: number; total: number }[]
+    discounts: { count: number; total: number }
+    voids: { count: number; total: number }
+    savedWithoutKot: number
+    vatCollected: number
+    invoiceRange: { from: number | null; to: number | null; count: number }
+  }
+}
+
+export interface DayCloseSummary {
+  id: string; closedAt: string; closedBy: string | null; shiftCount: number; grandTotal: number
+}
+
 /** One spreadsheet row as POST /api/masters/menu/import accepts it. */
 export interface MenuImportRow {
   category: string; item: string; price: string; kitchen?: string | null
+  /** Optional search code; blank leaves an existing item's short name alone. */
+  shortName?: string
   /** Spreadsheet line — the hub reports problems against it. */
   line?: number
 }
@@ -175,8 +207,9 @@ export interface MenuImportRow {
 /** Mirrors `MenuImportPlan` in the server's menu-import service. */
 export interface MenuImportPlan {
   categoriesToCreate: { name: string; kitchen: string | null }[]
-  itemsToCreate: { category: string; name: string; price: number }[]
+  itemsToCreate: { category: string; name: string; price: number; shortName: string | null }[]
   itemsToUpdate: { category: string; name: string; from: number; to: number }[]
+  shortNamesToSet: { category: string; name: string; from: string | null; to: string }[]
   unchanged: number
   /** `row` is the spreadsheet line when rows carry `line`. */
   errors: { row: number; message: string }[]
@@ -215,8 +248,12 @@ export interface SubmitOrder {
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
   customerName?: string | null
+  /** Order-level note for the kitchen (takeaway, car, delivery). */
+  note?: string | null
   lines: { itemId: string; qty: number; note: string | null; modifiers: { id: string; name: string; priceDelta: number }[] }[]
   employeeId: string
+  /** Who serves a new order; the KOT prints this name. Defaults to employeeId. */
+  waiterId?: string | null
   suppressKot?: boolean
 }
 

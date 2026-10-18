@@ -86,6 +86,8 @@ export const items = sqliteTable(
     categoryId: text('category_id').notNull().references(() => categories.id),
     name: text('name').notNull(),
     nameAr: text('name_ar'),
+    /** Optional search code staff type instead of the name: "cb" for Chicken Biriyani. */
+    shortName: text('short_name'),
     /** Minor units. Gross or net depending on settings.priceIncludesTax. */
     price: integer('price').notNull(),
     /** 86'ing an item during service must be one tap. */
@@ -101,6 +103,7 @@ export const modifierGroups = sqliteTable('modifier_groups', {
   id: id(),
   name: text('name').notNull(),
   minSelect: integer('min_select').notNull().default(0),
+  /** 0 means no limit. */
   maxSelect: integer('max_select').notNull().default(1),
   sort: sort(),
   active: active(),
@@ -219,6 +222,8 @@ export const settings = sqliteTable('settings', {
   invoicePrefix: text('invoice_prefix').notNull().default('INV-'),
   invoiceNextNo: integer('invoice_next_no').notNull().default(1),
   orderNextNo: integer('order_next_no').notNull().default(1),
+  /** Running number printed on every kitchen ticket, so the pass can call tickets out. */
+  kotNextNo: integer('kot_next_no').notNull().default(1),
 
   /**
    * Hour the business day rolls over, 0-23. A restaurant that closes at 02:00
@@ -296,6 +301,20 @@ export const shifts = sqliteTable('shifts', {
   countedCash: integer('counted_cash'),
   expectedCash: integer('expected_cash'),
   variance: integer('variance'),
+  /** Set when the counter's day is closed; null while the shift waits for the next day close. */
+  dayCloseId: text('day_close_id').references(() => dayCloses.id),
+})
+
+/**
+ * A counter's day close, done after its last shift. It gathers every shift
+ * closed on that counter since the previous day close, whatever their length,
+ * and prints one report: each shift, then the counter's totals.
+ */
+export const dayCloses = sqliteTable('day_closes', {
+  id: id(),
+  counterId: text('counter_id').notNull().references(() => counters.id),
+  employeeId: text('employee_id').notNull().references(() => employees.id),
+  closedAt: integer('closed_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
 export const orders = sqliteTable(
@@ -318,6 +337,8 @@ export const orders = sqliteTable(
     customerName: text('customer_name'),
     vehicleNo: text('vehicle_no'),
     bayNo: text('bay_no'),
+    /** Order-level instruction ("pack sauces separately"). Prints on every KOT. */
+    note: text('note'),
 
     /** Who serves it / gets the credit. Prints on KOT and bill. Admin-reassignable. */
     waiterId: text('waiter_id').references(() => employees.id),
@@ -406,8 +427,10 @@ export const kotTickets = sqliteTable(
     id: id(),
     orderId: text('order_id').notNull().references(() => orders.id),
     kitchenId: text('kitchen_id').notNull().references(() => kitchens.id),
-    /** Per-order sequence: KOT #1, KOT #2 (ADD-ON), ... */
+    /** Per-order sequence: 1 is the first round, 2+ are add-ons. Decides NEW vs ADD-ON. */
     seq: integer('seq').notNull(),
+    /** Running ticket number across all orders, printed as KOT #. Null on tickets made before 0014. */
+    kotNo: integer('kot_no'),
     kind: text('kind', { enum: ['new', 'addon', 'void'] }).notNull().default('new'),
     linesJson: text('lines_json').notNull(),
     printedAt: integer('printed_at', { mode: 'timestamp_ms' }),

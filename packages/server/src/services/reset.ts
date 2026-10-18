@@ -55,10 +55,10 @@ const GROUPS: Group[] = [
   {
     id: 'sales',
     label: 'Sales and history',
-    description: 'Orders, kitchen tickets, payments, shifts, expenses, customers and the audit log.',
+    description: 'Orders, kitchen tickets, payments, shifts, day closes, expenses, customers and the audit log.',
     // Children before parents: order_items and payments point at orders.
     tables: ['audit_log', 'print_jobs', 'kot_tickets', 'payments', 'order_items', 'orders',
-             'expenses', 'shifts', 'customer_addresses', 'customers'],
+             'expenses', 'shifts', 'day_closes', 'customer_addresses', 'customers'],
     blockedBy: () => null,
   },
   {
@@ -137,7 +137,7 @@ const GROUPS: Group[] = [
 /** Every table, most dependent first. Used by the full reset. */
 const FULL_ORDER = [
   'audit_log', 'print_jobs', 'kot_tickets', 'payments', 'order_items', 'orders',
-  'expenses', 'shifts', 'customer_addresses', 'customers',
+  'expenses', 'shifts', 'day_closes', 'customer_addresses', 'customers',
   'item_modifier_groups', 'modifiers', 'modifier_groups', 'items', 'categories',
   'tables', 'areas',
   'devices', 'counters', 'payment_modes',
@@ -188,7 +188,7 @@ export function clearGroup(id: GroupId) {
     wipe(group.tables)
     // Test orders should not leave the first real invoice at number 40.
     if (id === 'sales') {
-      db.update(s.settings).set({ invoiceNextNo: 1, orderNextNo: 1 }).where(eq(s.settings.id, 'singleton')).run()
+      db.update(s.settings).set({ invoiceNextNo: 1, orderNextNo: 1, kotNextNo: 1 }).where(eq(s.settings.id, 'singleton')).run()
     }
   })()
 
@@ -220,7 +220,7 @@ export function clearEverything() {
       countryCode: 'AE', currencyCode: 'AED', currencyDisplay: 'AED', currencyDecimals: 2,
       taxName: 'VAT', taxRateBp: 500, taxNumberLabel: 'TRN', taxNumberValue: '',
       priceIncludesTax: true, serviceChargeBp: 0,
-      invoicePrefix: 'INV-', invoiceNextNo: 1, orderNextNo: 1,
+      invoicePrefix: 'INV-', invoiceNextNo: 1, orderNextNo: 1, kotNextNo: 1,
       businessDayStartHour: 0, defaultKitchenId: null, requirePinOnAction: false,
       // installId, trialStartedAt, trialEndsAt, licenceKey, clockHighWater and superadminHash
       // are deliberately absent — losing them would cost the shop its licence

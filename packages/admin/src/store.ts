@@ -33,7 +33,7 @@ interface State {
    * The shift that was just closed. While set, Shell shows "Counter closed"
    * instead of jumping straight to the open-counter screen.
    */
-  closedShift: { report: ZReport; backupError: string | null } | null
+  closedShift: { report: ZReport; backupError: string | null; backupPath?: string | null } | null
   setClosedShift: (closed: State['closedShift']) => void
   money: (minor: number) => string
   employeeName: (id: string | null | undefined) => string

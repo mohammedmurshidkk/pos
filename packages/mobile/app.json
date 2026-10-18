@@ -1,17 +1,16 @@
 {
   "expo": {
     "slug": "restaurant-pos",
-    "version": "1.0.1",
     "orientation": "default",
     "scheme": "posapp",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B1220",
     "android": {
-      "versionCode": 3,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.INTERNET",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "plugins": [

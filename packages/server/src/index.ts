@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import cors from '@fastify/cors'
@@ -37,6 +37,8 @@ import {
   paymentModeWise, resolveRange, salesSummary, taxSummary, toCsv, type RangePreset,
 } from './services/reports.js'
 import { importMenu, type MenuImportRow } from './services/menu-import.js'
+import { appVersion, changelog, tabletApkPath, tabletApkStatus, tabletUpdate } from './services/app-update.js'
+import { closeDay, dayReport, dayReportPreview, listDayCloses, reprintDayClose } from './services/day-close.js'
 import { canOpenShift, closeShift, openShift, openShiftIdFor, zReport } from './services/shifts.js'
 import { removeUnsentLine, voidLine, voidOrder } from './services/voids.js'
 
@@ -111,6 +113,9 @@ const TABLET_ROUTES = new Set([
   'POST /api/orders/:id/bill',
   // Delivery: phone first, then the name and saved addresses fill in.
   'GET /api/customers/lookup',
+  // The tablet app updates itself from the hub — see services/app-update.ts.
+  'GET /api/app-update',
+  'GET /api/app-update/apk',
   'GET /ws',
 ])
 
@@ -363,6 +368,34 @@ app.post('/api/shifts/:id/close', async (req) => {
   return result
 })
 
+/* ───────────────────────────── day close ───────────────────────────── */
+// Counter only, like every shift close route: none of these are in TABLET_ROUTES.
+
+/** What "Close day" would print: closed shifts not yet in a day close. */
+app.get('/api/day-close/preview', async (req) => {
+  const { counterId } = req.query as { counterId: string }
+  return dayReportPreview(counterId)
+})
+
+app.post('/api/day-close', async (req) => {
+  const { counterId, employeeId } = req.body as { counterId: string; employeeId: string }
+  const report = closeDay(counterId, employeeId)
+  broadcast('day.closed', { dayCloseId: report.dayCloseId })
+  return report
+})
+
+app.get('/api/day-closes', async (req) => {
+  const { counterId } = req.query as { counterId: string }
+  return listDayCloses(counterId)
+})
+
+app.get('/api/day-closes/:id', async (req) => dayReport((req.params as { id: string }).id))
+
+app.post('/api/day-closes/:id/reprint', async (req) => {
+  const { employeeId } = req.body as { employeeId: string }
+  return reprintDayClose((req.params as { id: string }).id, employeeId)
+})
+
 /* ───────────────────────────── expenses ───────────────────────────── */
 
 app.get('/api/expenses', async (req) => {
@@ -437,6 +470,22 @@ app.post('/api/devices/pair', async (req) => {
   const result = pairDevice(body, req.socket.remoteAddress ?? 'unknown')
   broadcast('device.paired', { deviceId: result.deviceId })
   return result
+})
+
+/* ───────────────────────────── updates ───────────────────────────── */
+
+/** Counter: Settings → Updates — this hub's version, its release notes, the APK it holds for tablets. */
+app.get('/api/changelog', async () => ({ version: appVersion(), entries: changelog(), tabletApk: tabletApkStatus() }))
+
+/** Tablet: is there a newer app on this hub? `?version=` is the tablet's own. */
+app.get('/api/app-update', async (req) => tabletUpdate((req.query as { version?: string }).version ?? null))
+
+app.get('/api/app-update/apk', async (_req, reply) => {
+  const file = tabletApkPath()
+  reply.header('content-length', statSync(file).size)
+  reply.header('content-disposition', `attachment; filename="${path.basename(file)}"`)
+  reply.type('application/vnd.android.package-archive')
+  return reply.send(createReadStream(file))
 })
 
 /** Tablet: confirms the stored token is still accepted. */

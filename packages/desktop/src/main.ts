@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileS
 import path from 'node:path'
 import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage, shell } from 'electron'
 import brand from '../../../brand/brand.json'
+import { startUpdates, tabletUpdateDir } from './updates'
 
 /**
  * The hub, as one double-click application.
@@ -105,6 +106,10 @@ async function main() {
   process.env.POS_MIGRATIONS = path.join(__dirname, 'drizzle')
   // The hub serves the UI, so it reaches /api over loopback — see index.ts.
   process.env.POS_UI_DIR = path.join(__dirname, 'ui')
+  // Release notes and the tablet APK the hub hands to tablets — see updates.ts.
+  process.env.POS_CHANGELOG = path.join(__dirname, 'CHANGELOG.md')
+  process.env.POS_TABLET_UPDATE_DIR = tabletUpdateDir()
+  process.env.POS_APP_VERSION = app.getVersion()
 
   log('data folder', dataDir)
   log('app', { version: app.getVersion(), platform: process.platform, arch: process.arch,
@@ -112,6 +117,7 @@ async function main() {
     emulated: app.runningUnderARM64Translation, electron: process.versions.electron })
   createWindow()
   createTray()
+  startUpdates({ log, beforeInstall: () => { quitting = true } })
 
   try {
     // Imported lazily on purpose: the server opens the SQLite file at module
@@ -219,6 +225,7 @@ ipcMain.handle('kiosk:set', (_e, on: unknown) => setKiosk(on === true))
 // hides to the tray and the hub keeps serving tablets.
 ipcMain.handle('window:minimize', () => { window?.minimize() })
 ipcMain.handle('window:close', () => { window?.close() })
+ipcMain.handle('app:version', () => app.getVersion())
 
 function setKiosk(on: boolean) {
   if (!window) return false
@@ -253,6 +260,7 @@ function buildTrayMenu() {
   const kiosk = window?.isKiosk() ?? false
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: `Hub running on port ${PORT}`, enabled: false },
+    { label: `Version ${app.getVersion()}`, enabled: false },
     { type: 'separator' },
     { label: 'Open', click: () => { window?.show(); window?.focus() } },
     {

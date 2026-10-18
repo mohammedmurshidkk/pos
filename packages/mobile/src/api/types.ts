@@ -15,6 +15,8 @@ export interface Table { id: string; areaId: string; name: string; seats: number
 export interface Category { id: string; name: string; kitchenId: string | null; sort: number }
 export interface Item {
   id: string; categoryId: string; name: string; price: number
+  /** Optional search code ("cb" for Chicken Biriyani). */
+  shortName?: string | null
   isAvailable: boolean; sort: number
 }
 export interface Employee {

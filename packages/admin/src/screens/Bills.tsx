@@ -156,6 +156,7 @@ export function Bills() {
               {selected.settledAt ? <span>Settled {time(selected.settledAt)}</span> : null}
             </div>
 
+            {selected.note ? <div className="muted">Note: {selected.note}</div> : null}
             {error ? <Banner tone="danger">{error}</Banner> : null}
             {notice ? <Banner tone="success">{notice}</Banner> : null}
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { Banner, Button, EmptyState, Field as FieldWrap, Modal, Pill, inputStyle } from '../components/ui'
 import { MASTERS, type Field, type MasterSpec, type Row, specFor } from '../masters/config'
+import { searchRank } from '../itemSearch'
 import { useStore } from '../store'
 import { MenuImport } from './MenuImport'
 
@@ -52,9 +53,21 @@ export function Masters() {
   const [notice, setNotice] = useState<string | null>(null)
   const [bulk, setBulk] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('')
 
   const spec = specFor(entity)
   const columns = useMemo(() => spec.fields.filter((f) => f.inTable !== false), [spec])
+
+  // A long list (a menu runs to hundreds of items) needs finding, not scrolling:
+  // search by name or short name, and narrow by the parent master — category
+  // for items, area for tables, kitchen for categories.
+  const filterField = spec.fields.find((f) => f.kind === 'select' && f.from && f.from !== 'systemPrinters')
+  const filterOptions = filterField ? optionsFor(filterField, lists, null) : []
+  const shown = useMemo(() => rows.filter((r) =>
+    (!filter || String(r[filterField?.key ?? ''] ?? '') === filter)
+    && (!search.trim() || searchRank({ name: String(r.name ?? ''), shortName: r.shortName as string | null }, search) > 0),
+  ), [rows, filter, filterField, search])
 
   const refresh = useCallback(async (target: MasterSpec) => {
     try {
@@ -124,7 +137,7 @@ export function Masters() {
         {MASTERS.map((m) => (
           <button
             key={m.entity}
-            onClick={() => { setEntity(m.entity); setError(null); setNotice(null) }}
+            onClick={() => { setEntity(m.entity); setError(null); setNotice(null); setSearch(''); setFilter('') }}
             style={{
               textAlign: 'left', height: 'var(--row-h)', padding: '0 12px', cursor: 'pointer',
               borderRadius: 'var(--r-button)', border: '1px solid transparent', fontWeight: 600,
@@ -160,6 +173,45 @@ export function Masters() {
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {notice ? <Banner tone="success">{notice}</Banner> : null}
 
+        {rows.length > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', width: 320, maxWidth: '100%' }}>
+              <input
+                placeholder={entity === 'items' ? 'Search by name or short name…' : `Search ${spec.title.toLowerCase()}…`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') setSearch('') }}
+                style={{ ...inputStyle, width: '100%', paddingRight: 40 }}
+              />
+              {search ? (
+                <button
+                  aria-label="Clear search"
+                  onClick={() => setSearch('')}
+                  style={{
+                    position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32,
+                    border: 'none', cursor: 'pointer', borderRadius: 'var(--r-button)', background: 'transparent',
+                    color: 'var(--text-muted)', fontSize: 18,
+                  }}
+                >×</button>
+              ) : null}
+            </div>
+            {filterField ? (
+              <select
+                aria-label={`Filter by ${filterField.label.toLowerCase()}`}
+                style={{ ...inputStyle, width: 220 }}
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              >
+                <option value="">All {filterField.label.toLowerCase().replace(/y$/, 'ie')}s</option>
+                {filterOptions.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            ) : null}
+            <span className="muted">
+              {shown.length === rows.length ? `${rows.length} ${spec.title.toLowerCase()}` : `${shown.length} of ${rows.length}`}
+            </span>
+          </div>
+        ) : null}
+
         {/* Shrinks to its rows when short; scrolls inside when longer than the screen. */}
         <div className="card" style={{ flex: '0 1 auto', minHeight: 0, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -176,7 +228,11 @@ export function Masters() {
                 <tr><td colSpan={columns.length + 1}>
                   <EmptyState title={`No ${spec.title.toLowerCase()} yet`} hint="Add the first one above." />
                 </td></tr>
-              ) : rows.map((row) => {
+              ) : shown.length === 0 ? (
+                <tr><td colSpan={columns.length + 1}>
+                  <EmptyState title="Nothing matches" hint="Try another search or filter." />
+                </td></tr>
+              ) : shown.map((row) => {
                 const off = row.active === false || row.enabled === false
                 return (
                   <tr key={row.id} style={{
@@ -220,8 +276,7 @@ export function Masters() {
           lists={lists}
           row={editing === 'new' ? null : editing}
           decimals={data?.settings.currencyDecimals ?? 2}
-          // Modifier groups hidden for now: uncomment to show "Asks for" on the item form.
-          // withGroups={entity === 'items'}
+          withGroups={entity === 'items'}
           onCancel={() => setEditing(null)}
           onSave={save}
         />
@@ -287,6 +342,9 @@ function display(f: Field, row: Row, lists: Lists) {
   if (f.kind === 'money') {
     return <span className="money">{(Number(value ?? 0) / 100).toFixed(2)}</span>
   }
+  if (f.kind === 'number' && f.blank && Number(value ?? 0) === f.blank.as) {
+    return <span className="faint">{f.blank.label}</span>
+  }
   if (f.key === 'ip') {
     return <span className="muted" style={{ fontFamily: 'ui-monospace, monospace' }}>{String(value ?? '')}</span>
   }
@@ -328,6 +386,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
       const v = row?.[f.key]
       out[f.key] = row ? (f.kind === 'money' ? Number(v ?? 0) / 10 ** decimals : v) : out[f.key]
       if (f.kind === 'money' && !row) out[f.key] = 0
+      if (f.kind === 'number' && f.blank && out[f.key] === f.blank.as) out[f.key] = ''
 
       // A required <select> shows its first option, but React state stays
       // undefined until someone changes it — so creating a row without touching
@@ -350,6 +409,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
     for (const f of spec.fields) {
       const v = values[f.key]
       if (f.kind === 'money') out[f.key] = Math.round(Number(v || 0) * 10 ** decimals)
+      else if (f.kind === 'number' && f.blank && String(v ?? '').trim() === '') out[f.key] = f.blank.as
       else if (f.kind === 'number') out[f.key] = Number(v || 0)
       else if (f.kind === 'bool') out[f.key] = Boolean(v)
       else if (f.kind === 'select' && f.choices && f.key === 'width') out[f.key] = Number(v)
@@ -390,7 +450,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
                 style={{ ...inputStyle, textAlign: f.kind === 'text' ? 'left' : 'right' }}
                 value={String(values[f.key] ?? '')}
                 inputMode={f.kind === 'text' ? 'text' : 'decimal'}
-                placeholder={f.kind === 'text' ? f.placeholder : undefined}
+                placeholder={f.kind === 'text' ? f.placeholder : f.kind === 'number' ? f.blank?.label : undefined}
                 onChange={(e) => set(f.key, e.target.value)}
               />
             )}
@@ -417,7 +477,7 @@ function EditRow({ spec, lists, row, decimals, withGroups, onCancel, onSave }: {
                       <span>{String(g.name)}</span>
                       <span className="faint" style={{ fontSize: 13 }}>
                         {Number(g.minSelect ?? 0) > 0 ? 'required' : 'optional'}
-                        {Number(g.maxSelect ?? 1) > 1 ? ` · up to ${g.maxSelect}` : ' · pick one'}
+                        {Number(g.maxSelect ?? 1) === 0 ? ' · any number' : Number(g.maxSelect ?? 1) > 1 ? ` · up to ${g.maxSelect}` : ' · pick one'}
                       </span>
                     </label>
                   ))}

@@ -28,6 +28,15 @@ function getSettings() {
   return row
 }
 
+/** One per kitchen ticket, across all orders. Same allocation as the order number. */
+export function nextKotNo(): number {
+  return raw.transaction(() => {
+    const row = raw.prepare('select kot_next_no as n from settings where id = ?').get('singleton') as { n: number }
+    raw.prepare('update settings set kot_next_no = ? where id = ?').run(row.n + 1, 'singleton')
+    return row.n
+  })()
+}
+
 /** Allocated inside a transaction so two tills can never take the same number. */
 function nextOrderNo(): number {
   return raw.transaction(() => {
@@ -46,6 +55,7 @@ export function createOrder(input: {
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
   customerName?: string | null
+  note?: string | null
   createdBy: string
 }) {
   requireEmployee(input.createdBy)
@@ -73,6 +83,7 @@ export function createOrder(input: {
     addressSnapshot: input.addressSnapshot ?? null,
     customerName,
     customerId,
+    note: input.note?.trim() || null,
     // waiterId is set by whoever sends the first KOT, not at creation.
     createdBy: input.createdBy,
     openedAt: now(),
@@ -161,7 +172,7 @@ export function recalculate(orderId: string) {
  * `suppressKot` covers the already-served case: the lines are marked sent so
  * they never queue, but no ticket is created and the kitchen receives nothing.
  */
-export function sendToKitchen(orderId: string, employeeId: string, suppressKot = false) {
+export function sendToKitchen(orderId: string, employeeId: string, suppressKot = false, waiterId: string | null = null) {
   const cfg = getSettings()
   const order = db.select().from(s.orders).where(eq(s.orders.id, orderId)).get()
   if (!order) throw notFound('order')
@@ -220,7 +231,11 @@ export function sendToKitchen(orderId: string, employeeId: string, suppressKot =
   const seq = nextKotSeq(existingSeqs)
   const kind = kotKindForSeq(seq)
 
-  const waiterName = employee.name
+  // The KOT names whoever serves the order, not whoever keyed it: at the counter
+  // the cashier sends on behalf of the waiter picked for the order. The first
+  // send sets that waiter, so it is the sender unless one was picked.
+  const ownerId = order.waiterId ?? (waiterId ? requireEmployee(waiterId).id : employeeId)
+  const waiterName = ownerId === employee.id ? employee.name : requireEmployee(ownerId).name
   const tableLabel = order.tableId
     ? (() => {
         const t = db.select().from(s.tables).where(eq(s.tables.id, order.tableId!)).get()
@@ -236,7 +251,7 @@ export function sendToKitchen(orderId: string, employeeId: string, suppressKot =
     // First sender owns the order. Later rounds by other waiters are allowed
     // and recorded per line, but the credit stays with the owner.
     if (!order.waiterId) {
-      db.update(s.orders).set({ waiterId: employeeId }).where(eq(s.orders.id, orderId)).run()
+      db.update(s.orders).set({ waiterId: ownerId }).where(eq(s.orders.id, orderId)).run()
     }
 
     for (const g of groups) {
@@ -246,20 +261,23 @@ export function sendToKitchen(orderId: string, employeeId: string, suppressKot =
       }
       const kitchen = db.select().from(s.kitchens).where(eq(s.kitchens.id, g.kitchenId)).get()!
       const ticketId = newId()
+      const kotNo = nextKotNo()
       const payload: KotPayload = {
         kitchenName: kitchen.name,
         orderNo: order.orderNo,
         seq,
+        kotNo,
         kind,
         orderType: order.type,
         tableLabel,
         ticketLabel: order.ticketLabel,
+        orderNote: order.note,
         waiterName,
         at: stamp(),
         lines: g.lines.map((l) => ({ qty: l.qty, name: l.name, note: l.note, modifiers: l.modifiers })),
       }
       db.insert(s.kotTickets).values({
-        id: ticketId, orderId, kitchenId: g.kitchenId, seq, kind,
+        id: ticketId, orderId, kitchenId: g.kitchenId, seq, kotNo, kind,
         linesJson: JSON.stringify(payload.lines),
       }).run()
       db.insert(s.printJobs).values({
@@ -437,8 +455,11 @@ export function submitOrder(input: {
   phoneSnapshot?: string | null
   addressSnapshot?: string | null
   customerName?: string | null
+  note?: string | null
   lines: NewLine[]
   employeeId: string
+  /** Who serves a new order, when someone else keys it (the counter). Defaults to employeeId. */
+  waiterId?: string | null
   suppressKot?: boolean
 }) {
   const already = db
@@ -461,10 +482,11 @@ export function submitOrder(input: {
       phoneSnapshot: input.phoneSnapshot ?? null,
       addressSnapshot: input.addressSnapshot ?? null,
       customerName: input.customerName ?? null,
+      note: input.note ?? null,
       createdBy: input.employeeId,
     })!.id
 
   addItems(orderId, input.lines, input.employeeId, input.batchRef)
-  const result = sendToKitchen(orderId, input.employeeId, input.suppressKot ?? false)
+  const result = sendToKitchen(orderId, input.employeeId, input.suppressKot ?? false, input.waiterId ?? null)
   return { order: getOrder(orderId), result, duplicate: false as const }
 }

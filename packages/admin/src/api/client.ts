@@ -1,7 +1,8 @@
 import type {
   BackupStatus, Bootstrap, ClosedOrder, Customer, Device, Expense, ExpenseCategory, LicenceStatus, MenuImportPlan, MenuImportRow,
-  Order, PrintJob, Printer, RangeQuery, RangeResult, Settings, SettingsPatch, SubmitOrder, ZReport,
+  Order, PrintJob, Printer, RangeQuery, RangeResult, Settings, SettingsPatch, SubmitOrder, ZReport, DayReport, DayCloseSummary,
 } from './types'
+import type { ChangelogResponse } from '../updates'
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) {
@@ -158,6 +159,9 @@ export const api = {
   retryJob: (id: string, employeeId: string) => post<{ id: string }>(`/api/print-jobs/${id}/retry`, { employeeId }),
   discardJob: (id: string, employeeId: string) => post<{ id: string }>(`/api/print-jobs/${id}/discard`, { employeeId }),
 
+  /** Settings → Updates: this hub's version, release notes, the tablet APK it holds. */
+  changelog: () => request<ChangelogResponse>('/api/changelog'),
+
   backups: () => request<BackupStatus>('/api/backups'),
   backupNow: (employeeId: string) =>
     post<{ path: string; bytes: number; pruned: string[]; status: BackupStatus }>('/api/backups', { employeeId }),
@@ -171,6 +175,12 @@ export const api = {
   zReport: (shiftId: string) => request<ZReport>(`/api/shifts/${shiftId}/z-report`),
   closeShift: (shiftId: string, body: { countedCash: number; employeeId: string }) =>
     post<{ report: ZReport; backupPath: string | null; backupError?: string | null }>(`/api/shifts/${shiftId}/close`, body),
+
+  dayClosePreview: (counterId: string) =>
+    request<{ shiftOpen: boolean; report: DayReport }>(`/api/day-close/preview?counterId=${counterId}`),
+  closeDay: (body: { counterId: string; employeeId: string }) => post<DayReport>('/api/day-close', body),
+  dayCloses: (counterId: string) => request<DayCloseSummary[]>(`/api/day-closes?counterId=${counterId}`),
+  reprintDayClose: (id: string, employeeId: string) => post<{ ok: true }>(`/api/day-closes/${id}/reprint`, { employeeId }),
 
   expenses: (range: RangeQuery, categoryId?: string) =>
     request<{ range: RangeResult; expenses: Expense[] }>(`/api/expenses?${rangeParams(range, { categoryId })}`),

@@ -15,6 +15,7 @@ import { useCatalog } from '../src/store/catalog'
 import { useQueue } from '../src/store/queue'
 import { useDevice } from '../src/store/device'
 import { useLayout, tileWidth } from '../src/theme/layout'
+import { appVersion } from '../src/update'
 import { color, orderTypeColor, radius, space, touch } from '../src/theme/tokens'
 
 const minutesSince = (iso: string) => {
@@ -45,6 +46,7 @@ export default function Home() {
   const [offline, setOffline] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [tab, setTab] = useState<'tables' | 'orders'>('tables')
+  const [updateTo, setUpdateTo] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -52,6 +54,10 @@ export default function Home() {
       setOrders(await api.openOrders())
       setOffline(false)
       void drain()
+      // A counter older than in-app updates answers 404; that just means no update.
+      api.appUpdate(appVersion())
+        .then((u) => setUpdateTo(u.available ? u.version : null))
+        .catch(() => {})
     } catch (e) {
       setOffline(e instanceof OfflineError)
     }
@@ -115,6 +121,14 @@ export default function Home() {
         <View style={styles.bannerWrap}>
           <Banner tone="danger" message="Can't reach the counter. Orders can't be sent.">
             <Button label="Retry" variant="secondary" onPress={() => void refresh()} />
+          </Banner>
+        </View>
+      ) : null}
+
+      {updateTo ? (
+        <View style={styles.bannerWrap}>
+          <Banner tone="info" message={`App update ${updateTo} is available`}>
+            <Button label="Update" variant="secondary" onPress={() => router.push('/update')} />
           </Banner>
         </View>
       ) : null}

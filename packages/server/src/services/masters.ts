@@ -40,6 +40,9 @@ const category = z.object({ name, kitchenId: z.string().min(1).nullable().defaul
 const item = z.object({
   categoryId: z.string().min(1),
   name,
+  /** Optional search code ("cb"). Blank is stored as null so it never matches. */
+  shortName: z.string().trim().max(20, 'Keep the short name under 20 characters')
+    .nullable().optional().transform((v) => v || null),
   price: money,
   isAvailable: z.boolean().default(true),
   sort,
@@ -78,10 +81,11 @@ const expenseCategory = z.object({ name, active })
 const modifierGroup = z.object({
   name,
   minSelect: z.number().int().min(0).max(20).default(0),
-  maxSelect: z.number().int().min(1).max(20).default(1),
+  // 0 (or null from a blank form field) means no limit: tick as many as you like.
+  maxSelect: z.number().int().min(0).max(20).nullable().default(1).transform((v) => v ?? 0),
   sort,
   active,
-}).refine((g) => g.minSelect <= g.maxSelect, {
+}).refine((g) => g.maxSelect === 0 || g.minSelect <= g.maxSelect, {
   message: 'Minimum cannot be more than the maximum',
   path: ['minSelect'],
 })

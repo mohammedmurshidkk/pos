@@ -20,6 +20,14 @@ New screens get their own section marked `new YYYY-MM-DD`. Every change also
 gets a line in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), newest first. The point
 is that anyone can see what the spec said before and what it says now.
 
+> **Update 2026-10-18:** anything a shop would notice ALSO gets a plain-language
+> line under `## [Unreleased]` in the root [`CHANGELOG.md`](CHANGELOG.md)
+> (`### Added` / `### Changed` / `### Fixed`). That file is the release notes:
+> the counter's "Update available" dialog, the tablet's update screen and the
+> GitHub release are cut from it. `pnpm release x.y.z` turns [Unreleased] into
+> the version and sets `packages/desktop/package.json`, which the tablet app
+> also reads (its versionCode is derived: 1.2.3 → 10203). See `RELEASE.md`.
+
 ## Layout
 
 ```
@@ -385,6 +393,52 @@ cannot reach its own hub. Rebuild before any Windows test.
 > `0012`): every query on `expenses` must skip deleted rows. The **Z-report
 > lists each drawer expense** (category: note, amount) under the total
 > (`cash.drawerExpenseList`). Server tests 282.
+
+> **Update 2026-10-18 (2):** **item short names.** `items.short_name` (optional,
+> migration `0013`, blank stored as null) is a search code like "cb" for Chicken
+> Biriyani, edited in Setup → Items. Item search is `searchItems` in
+> `admin/src/itemSearch.ts` with a copy in `mobile/src/util/itemSearch.ts` —
+> keep the two in step. Short-name hits rank first; counter Enter adds an exact
+> short-name match. **Setup lists have search + a parent filter** (first `from`
+> select in the master's spec). The menu CSV import and its template take an
+> optional `short name` column; blank leaves an existing one alone.
+
+> **Update 2026-10-18 (3):** **day close.** Shops that run several shifts a day
+> close each shift as before (own float, own Z-report), then **Close day** after
+> the last one (`server/src/services/day-close.ts`, `admin/src/screens/DayClose.tsx`,
+> button on *Counter closed* and *Open the counter*). The day is **the closed
+> shifts on that counter with no `day_close_id`**, never a time window, so
+> shift length and count are up to the shop. It prints as a `report` print job
+> whose payload has `day` (`renderDayReport`); `renderJob` picks the template by
+> that field. Refuses while the counter has an open shift. Migration `0016`
+> (`day_closes`, `shifts.day_close_id`); Clear Sales clears `day_closes` too.
+> Routes: `GET /api/day-close/preview`, `POST /api/day-close`,
+> `GET /api/day-closes`, `GET /api/day-closes/:id`, `POST /api/day-closes/:id/reprint`
+> (all counter only).
+
+> **Update 2026-10-18 (4):** **KOT and order note.** **KOT # is a running
+> number** (`nextKotNo()` in `services/orders.ts`, `settings.kot_next_no`,
+> `kot_tickets.kot_no`, migration `0015`), one per kitchen ticket including void
+> tickets, reset with the order number. `seq` still decides NEW vs ADD-ON; old
+> queued jobs without `kotNo` print `seq`. **The KOT names the order's waiter**:
+> `submit` takes `waiterId` and `sendToKitchen` uses `order.waiterId ?? waiterId
+> ?? sender`, so the counter no longer calls `setWaiter` after sending. **Order
+> note** `orders.note` (migration `0014`, `submit` takes `note`; counter New order
+> only, not dine-in): printed by `Receipt.wrap()` (left-aligned, word-wrapped,
+> bold) under the KOT header on every ticket; shown in Billing, Settle and Bills;
+> `renderBill` must never print it.
+
+> **Update 2026-10-18 (5):** **modifiers are back on.** The Modifier groups and
+> Modifiers masters and the item form's "Asks for" are uncommented
+> (`admin/src/masters/config.ts`, `Masters.tsx`). **`max_select = 0` means no
+> limit** (hub turns a blank/null Max into 0; the min ≤ max check skips 0), so
+> any code reading `maxSelect` must treat 0 as unlimited, never as "pick one"
+> (`ModifierSheet.tsx`, `ModifierModal` in `OrderEntry.tsx`, Setup's "Asks for"
+> label). Number fields can take `blank: { as, label }` in the master spec. Add-ons
+> can be changed on an unsent cart line: `updateLine` in `mobile/src/store/cart.ts`
+> (re-keys and merges like `setNote`) and `editingLine` in `OrderEntry.tsx`.
+> "Order" is "Display order" on both. *Counter closed* now shows the backup path
+> (`backupPath` from `closeShift`).
 
 Never verified: **the installer on real Windows**, **a real thermal printer**,
 **the APK on a real tablet**.

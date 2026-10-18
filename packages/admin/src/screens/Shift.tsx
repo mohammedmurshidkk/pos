@@ -175,6 +175,7 @@ export function Shift() {
               // Shell takes over: "Counter closed", then the open-counter screen.
               setClosedShift({
                 report: res.report,
+                backupPath: res.backupPath,
                 backupError: res.backupPath ? null : res.backupError ?? 'The backup was not written.',
               })
             } catch (e) {

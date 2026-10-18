@@ -1,3 +1,4 @@
+import type { AppUpdate } from '../update'
 import type { Bootstrap, Customer, Order, SendResult, SubmitPayload } from './types'
 
 /** An error the waiter should see, rather than a crash. */
@@ -20,6 +21,7 @@ export const getBaseUrl = () => baseUrl
 /** Issued once at pairing; the hub rejects every order call without it. */
 let deviceToken: string | null = null
 export const setDeviceToken = (token: string | null) => { deviceToken = token }
+export const getDeviceToken = () => deviceToken
 
 /**
  * Called when the hub says this tablet is no longer paired — revoked from the
@@ -136,6 +138,9 @@ export const api = {
     if (!res.ok) throw new ApiError(body.message ?? 'Pairing failed.', body.error ?? 'unknown', res.status)
     return body as unknown as { deviceId: string; name: string; token: string }
   },
+
+  /** Is there a newer tablet app on the counter PC? See src/update.ts. */
+  appUpdate: (version: string) => request<AppUpdate>(`/api/app-update?version=${encodeURIComponent(version)}`),
 
   /** Confirms the stored token is still accepted. */
   me: () => request<{ id: string; name: string } | null>('/api/devices/me'),

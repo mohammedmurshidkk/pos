@@ -111,6 +111,10 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 
 > **Update 2026-10-04 (8):** **Counter New order: the waiter is picked when sending, not from a dropdown.** The "Waiter (gets the sales credit)" select is gone from the order details. **Send to kitchen** (or Save without KOT) opens **"Who is serving this order?"** with large name tiles; one tap sends. The signed-in person is listed first and highlighted ("You · signed in"), then waiters, then other admins. Unlike the tablet's picker this one does pre-highlight: the counter has a real sign-in and a walk-in is usually served by whoever is at the till. **Add items** to an open order skips the picker (the order keeps its waiter).
 
+> **Update 2026-10-18:** - **Modifier groups and Modifiers are back** in Setup, with the item form's **Asks for (modifier groups)** section. A group's **Max** can be left blank for **no limit** (the list shows "No limit", stored as 0); the hint on the tablet and counter then reads "Choose any" (or "Choose N or more" with a Min). **Order** on both is now **Display order** with a help line, like items: the order groups are asked in, and where a modifier sits in its group.
+> - **Items → Short name** (optional, up to 20 characters): a search code such as `cb` for Chicken Biriyani. The CSV import takes it too (`short name` column, see [`05-menu-import.md`](05-menu-import.md)).
+> - **Search and filter above every list:** a search box (name, or name and short name for items; **Esc** or × clears) and a filter by the master's parent (category for items, area for tables, kitchen for categories, printer for kitchens and counters), with "12 of 240" style counts and a *Nothing matches* state.
+
 ## A10 · Printers — P0 · **support-critical**
 - List: name, IP:port, width, live status dot, pending job count
 - Row actions: **Test Print** · Edit · Disable
@@ -169,6 +173,12 @@ The fallback when a tablet breaks, and the normal path for walk-in takeaway. Ope
 
 > **Update 2026-10-08 (2):** **Narrow windows scale down instead of being cut off.** The UI needs 1024 CSS px (`body { min-width: 1024px }`), but a 1024×768 POS monitor with Windows display scaling at 125% gives the window only ~819. The right side of every screen (the order, Send to kitchen, More) went off screen. Below 1024 px the whole page is now zoomed to fit the width, like Ctrl + minus (`admin/src/fitWidth.ts`). At 1024 px and wider nothing changes.
 
+> **Update 2026-10-18:** - **Order note** (optional) under the customer fields for takeaway, car and delivery (not dine-in, not on Add items): "Extra spicy, pack sauces separately". It prints bold and left-aligned on every KOT of the order and shows as a warning banner in Billing and the Settle dialog and as a line in Bills; never on the tax invoice.
+> - **The picked waiter goes with the send:** `submit` takes `waiterId`, so the KOT prints the serving waiter's name and the sales credit is theirs from the first send (before, the KOT showed the cashier and the waiter was set afterwards).
+> - **Search matches short names**, short-name hits first; **Enter** adds the item when one match is left **or** the search is an exact short name. Placeholder "Search items or short name…".
+> - **Edit add-ons on a cart line:** a line whose item has modifier groups can reopen the modifier modal with its current choices, qty and note; the button reads **Save**.
+> - Billing's order cards keep their order-type colour stripe when selected (it was dropped on re-render).
+
 ## A17 · Customers — P1
 Search by phone. Detail: name, phone, addresses, order history. Created automatically from delivery orders.
 
@@ -200,6 +210,9 @@ Hub with date-range picker (Today / Yesterday / This week / This month / Custom)
 
 > **Update 2026-10-05:** **A shift closes only when every order is settled.** The hub refuses the close while any order is open or billed — from any counter or tablet, not only billed orders on this counter as before — and names them ("2 order(s) are not settled yet (#14, #15). Settle or cancel them before closing the shift."). An order with no live lines (opened and left empty) does not block. Before, a seated or sent order could be left out of every Z-report.
 
+> **Update 2026-10-18:** **Day close.** Shops that run several shifts a day close each shift as before (own float, own Z-report), then **Close day** after the last one: a ghost button on *Open the counter* and **Last shift of the day? Close day** on *Counter closed*. The modal previews the day (counter, from/to, each shift's sales and cash, counter sales by payment mode, expenses, cash over all shifts) and **Close day & print report** prints one DAY CLOSE report; it lists earlier day closes with **Reprint**. *No shifts to close* when every closed shift is already on a day close. Refused while the counter has a shift open. Spec: [`01-product-spec.md`](01-product-spec.md) §8.
+> - *Counter closed* now says **where the backup went**: "Backup saved to D:\POS Backups\…db. Change the folder in Settings → Backup." (was just "Backup written").
+
 ## A20 · Settings — P0
 Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of spec §7) · Invoice (prefix, next number, reprint policy) · Backup (path, last run, Backup Now) · License (expiry, machine id) · Default kitchen.
 
@@ -209,6 +222,8 @@ Tabbed: Business (name, TRN, address, logo, footer) · Tax & Currency (all of sp
 > - **Backup folder**: default is `backups` next to the database (on Windows `%APPDATA%/…/backups`). Any full path can be saved, e.g. `D:\POS Backups` or a USB stick; the hub creates it and test-writes a file first, and refuses a relative path or a folder it cannot write. **Use default folder** goes back
 > - List of the newest 10 backups with date and size, total count and size
 > - Text states the rule: a backup at every shift close, once a day if no shift closed, 30 days kept, newest always kept
+
+> **Update 2026-10-18:** a third tab, **Updates** (`#/settings?tab=updates`): this counter's version, **Check for updates**, download progress and **Restart and update**, whether the tablet APK of this version is ready to serve, and the release notes of every version (from the root `CHANGELOG.md`). The top bar shows an **Update x.y.z** pill when one is downloaded. Release steps: `RELEASE.md`.
 
 ## A21 · Print queue — P0 (slide-over panel)
 - Jobs: kind, printer, order/invoice ref, attempts, status, error
@@ -310,6 +325,8 @@ Shown when the device is paired but the hub is unreachable.
 - **Resume banner** when an unsent draft exists: `⚠️ Unsent order for Table A5 · 3 items [Resume] [Discard]` — Android kills backgrounded apps during a rush, and a silently lost order destroys trust
 - **States:** free · occupied · bill printed · multiple orders · empty area · offline banner · resume-draft banner
 
+> **Update 2026-10-18:** when the counter has a newer tablet app, Home shows an info banner **App update x.y.z is available** with **Update**, which opens W14.
+
 ## W04 · Occupied table sheet — P0
 The two-customers-one-table case.
 - Bottom sheet listing every open order on that table: order no, ticket label, waiter, elapsed, item count, total, status pill
@@ -337,10 +354,15 @@ Landscape tablet: category rail left (25%), item grid centre (50%), cart right (
 
 > **Update 2026-10-04:** Cart lines now have **+ Note** / **Edit note** (with the quick-note chips and Remove note). Before this a note could only be added by long-pressing an item before adding it. On a phone the cart sheet closes first so two sheets don't stack. Editing a note to match another line merges the two.
 
+> **Update 2026-10-18:** - **Search looks through the whole menu**, not just the open category, and matches short names (`cb`), short-name hits first. Placeholder "Search items or short name".
+> - Cart lines show their chosen add-ons under the name, and a line whose item has modifier groups has **+ Add-ons** / **Edit add-ons** next to + Note: it opens W07 with the line's choices, qty and note, and **Save** writes over the line (merging with an identical line, like notes).
+
 ## W07 · Modifier & note sheet — P1
 Bottom sheet on item tap when the item has modifier groups. Group title, min/max hint, options with price deltas, free-text note field, qty, `Add to Order`.
 - **Plain items need a note path too.** An item with no modifier groups still needs "no ice" or "less spicy". **Long-press any item tile** opens the same sheet with only the note field and qty.
 - **States:** with modifier groups · note-only (plain item) · min-select not satisfied (Add disabled)
+
+> **Update 2026-10-18:** a group with **no Max** (`maxSelect 0`) allows any number of ticks; hint "Choose any", or "Choose N or more" with a Min. Opened from a cart line it starts from that line's choices and the button reads **Save · AED …** instead of **Add to Order**.
 
 ## W08 · Order review — P0
 Confirm before sending. Groups lines **by kitchen** so the waiter sees the split:
@@ -395,6 +417,10 @@ Guests get moved constantly, so this is used more than you'd expect.
 - Area tabs across the top
 - Tap a free table → confirm sheet naming both tables → move
 - **States:** default · no free tables in this area · confirm
+
+## W14 · App update — P0 · **new 2026-10-18, built**
+Reached from the **App update available** banner on Home (W03) or **Check for Update** in W12. Shows this app's version, **What's new in x.y.z** for each newer version (the counter's `CHANGELOG.md`), and **Install update**: the APK downloads from the counter over the shop wifi (`GET /api/app-update/apk`, tablet token) with a percentage, then Android's installer takes over. A warning names any orders still waiting to send (they survive the update). **Check again** reloads. A counter older than in-app updates simply reports no update. (The code comment in `mobile/app/update.tsx` calls it W13, which this list already uses for Change table.)
+- **States:** up to date · update available · orders still queued · downloading · error
 
 # Build order for screens
 

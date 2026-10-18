@@ -104,9 +104,12 @@ export function Billing() {
               onClick={() => setSelectedId(o.id)}
               style={{
                 textAlign: 'left', cursor: 'pointer', padding: 12,
-                borderRadius: 'var(--r-card)', borderLeft: `4px solid ${typeColor[o.type]}`,
-                border: `1px solid ${o.id === selectedId ? 'var(--primary)' : 'var(--border)'}`,
-                borderLeftWidth: 4, borderLeftColor: typeColor[o.type],
+                // Longhands only: mixing `border` with `borderLeft*` lets React's
+                // re-render on select reset the shorthand and drop the type stripe.
+                borderRadius: 'var(--r-card)', borderStyle: 'solid',
+                borderWidth: '1px 1px 1px 4px',
+                borderColor: o.id === selectedId ? 'var(--primary)' : 'var(--border)',
+                borderLeftColor: typeColor[o.type],
                 background: o.id === selectedId ? 'var(--primary-subtle)' : 'var(--surface)',
                 display: 'flex', justifyContent: 'space-between', gap: 12,
               }}
@@ -156,6 +159,8 @@ export function Billing() {
                 {selected.type === 'delivery' && selected.addressSnapshot ? <span>{selected.addressSnapshot}</span> : null}
               </div>
             ) : null}
+            {/* Screen only: the order note is for staff and never prints on the tax invoice. */}
+            {selected.note ? <Banner tone="warning">Note: {selected.note}</Banner> : null}
             {error ? <Banner tone="danger">{error}</Banner> : null}
             {selected.reprintCount > 0 ? (
               <Banner tone="warning">

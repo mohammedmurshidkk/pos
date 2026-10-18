@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { Login } from '../screens/Login'
 import { CounterClosed, OpenCounter } from '../screens/OpenCounter'
@@ -18,6 +18,7 @@ export function Shell() {
   const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
   const [canOpen, setCanOpen] = useState(true)
   const { pathname } = useLocation()
+  const navigate = useNavigate()
 
   // Leaving the admin area locks it again: the next visit asks for the PIN.
   useEffect(() => {
@@ -103,7 +104,11 @@ export function Shell() {
       />
     )
   }
-  if (shiftOpen === false && canOpen) return <OpenCounter onOpened={() => setShiftOpen(true)} />
+  // A new shift starts on the home screen, not wherever the last one ended
+  // (usually Shift, which would show the new shift's close page).
+  if (shiftOpen === false && canOpen) {
+    return <OpenCounter onOpened={() => { setShiftOpen(true); navigate('/floor', { replace: true }) }} />
+  }
 
   const lapsed = data.licence?.state === 'unlicensed'
     ? 'No licence or trial yet — new orders and shifts are blocked. Activate a key, or ask your supplier for a trial.'

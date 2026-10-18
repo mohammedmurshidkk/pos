@@ -92,6 +92,34 @@
       "when": 1792320437491,
       "tag": "0012_giant_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792332000000,
+      "tag": "0013_item_short_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792332600000,
+      "tag": "0014_order_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1792333200000,
+      "tag": "0015_kot_running_no",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792333800000,
+      "tag": "0016_day_close",
+      "breakpoints": true
     }
   ]
 }

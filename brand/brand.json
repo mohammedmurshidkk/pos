@@ -17,6 +17,12 @@
   "vendorKeyFolder": ".zentivo-pos",
   "legacyVendorKeyFolders": [".almanzil-pos"],
 
+  "updates": {
+    "githubOwner": "mohammedmurshidkk",
+    "githubRepo": "pos",
+    "tabletApkFileName": "ZentivoPOS-Waiter"
+  },
+
   "ids": {
     "appId": "com.zentivo.pos",
     "androidPackage": "com.zentivo.pos"

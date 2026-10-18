@@ -3,6 +3,7 @@ import { ApiError, api } from '../api/client'
 import type { ZReport } from '../api/types'
 import { Banner, Button, Field, inputStyle } from '../components/ui'
 import { useStore } from '../store'
+import { DayCloseModal } from './DayClose'
 
 /**
  * Opening the till.
@@ -16,6 +17,7 @@ export function OpenCounter({ onOpened }: { onOpened: () => void }) {
   const [float, setFloat] = useState('500')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [closingDay, setClosingDay] = useState(false)
 
   const decimals = data?.settings.currencyDecimals ?? 2
   const counters = data?.counters ?? []
@@ -88,12 +90,17 @@ export function OpenCounter({ onOpened }: { onOpened: () => void }) {
         </div>
 
         <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between' }}>
-          <Button variant="ghost" onClick={signOut}>Sign out</Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={signOut}>Sign out</Button>
+            {/* After the last shift of the day: no float to count, just the day report. */}
+            <Button variant="ghost" onClick={() => setClosingDay(true)}>Close day</Button>
+          </div>
           <Button variant="primary" disabled={busy} onClick={() => void open()}>
             {busy ? 'Opening…' : 'Open counter'}
           </Button>
         </div>
       </div>
+      {closingDay ? <DayCloseModal onClose={() => setClosingDay(false)} /> : null}
     </div>
   )
 }
@@ -104,11 +111,12 @@ export function OpenCounter({ onOpened }: { onOpened: () => void }) {
  * cashiers could not tell whether the close had worked.
  */
 export function CounterClosed({ closed, onDone }: {
-  closed: { report: ZReport; backupError: string | null }
+  closed: { report: ZReport; backupError: string | null; backupPath?: string | null }
   onDone: () => void
 }) {
   const { money, signOut } = useStore()
   const { report, backupError } = closed
+  const [closingDay, setClosingDay] = useState(false)
   const variance = report.cash.variance
 
   return (
@@ -145,13 +153,24 @@ export function CounterClosed({ closed, onDone }: {
 
         {backupError
           ? <Banner tone="warning">The backup failed. Check Settings → Backup. ({backupError})</Banner>
-          : <Banner tone="success">Backup written.</Banner>}
+          : (
+            <Banner tone="success">
+              {/* Say where: "written" alone left cashiers asking where the copy went. */}
+              <span style={{ overflowWrap: 'anywhere' }}>
+                Backup saved{closed.backupPath ? ` to ${closed.backupPath}` : ''}. Change the folder in Settings → Backup.
+              </span>
+            </Banner>
+          )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
           <Button onClick={() => { onDone(); signOut() }} style={{ minHeight: 52 }}>Sign out</Button>
           <Button variant="primary" onClick={onDone} style={{ minHeight: 52 }}>OK</Button>
         </div>
+        <Button onClick={() => setClosingDay(true)} style={{ minHeight: 52 }}>
+          Last shift of the day? Close day
+        </Button>
       </div>
+      {closingDay ? <DayCloseModal onClose={() => setClosingDay(false)} /> : null}
     </div>
   )
 }

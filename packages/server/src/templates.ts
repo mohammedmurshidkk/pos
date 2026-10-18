@@ -6,10 +6,14 @@ export interface KotPayload {
   kitchenName: string
   orderNo: number
   seq: number
+  /** Running ticket number. Jobs queued before it existed fall back to seq. */
+  kotNo?: number | null
   kind: 'new' | 'addon' | 'void'
   orderType: 'dine_in' | 'takeaway' | 'car' | 'delivery'
   tableLabel?: string | null
   ticketLabel?: string | null
+  /** Order-level note, e.g. a takeaway instruction. Repeated on add-on KOTs. */
+  orderNote?: string | null
   waiterName: string
   at: string
   lines: { qty: number; name: string; note?: string | null; modifiers?: string[] }[]
@@ -81,6 +85,39 @@ export interface ZReportPayload {
   }
 }
 
+/** Counter day close: every shift since the last day close, then the totals. */
+export interface DayReportPayload {
+  businessName: string
+  currencyDisplay: string
+  currencyDecimals: number
+  taxName: string
+  invoicePrefix: string
+  day: {
+    counterName: string
+    closedBy: string | null
+    closedAt: string | Date | null
+    from: string | Date | null
+    to: string | Date | null
+    shifts: ZReportPayload['report'][]
+    totals: {
+      paymentModes: { name: string; count: number; total: number }[]
+      grandTotal: number
+      cash: {
+        openingFloats: number; cashSales: number; drawerExpenses: number
+        expected: number; counted: number; variance: number
+      }
+      expenses: { drawer: number; other: number; total: number; byCategory: { category: string; count: number; total: number }[] }
+      orderTypes: { type: string; count: number; total: number }[]
+      waiters: { name: string; orders: number; total: number }[]
+      discounts: { count: number; total: number }
+      voids: { count: number; total: number }
+      savedWithoutKot: number
+      vatCollected: number
+      invoiceRange: { from: number | null; to: number | null; count: number }
+    }
+  }
+}
+
 export interface TestPayload {
   printerName: string
   ip: string
@@ -107,14 +144,19 @@ export function renderKot(p: KotPayload, widthMm: number): Buffer {
 
   if (p.kind === 'void') r.banner('*** CANCELLED ***')
   r.big(p.kitchenName)
-  if (p.kind === 'addon') r.center(`KOT #${p.seq} (ADD-ON)`, true)
-  else r.center(`KOT #${p.seq}`, true)
+  const no = p.kotNo ?? p.seq
+  if (p.kind === 'addon') r.center(`KOT #${no} (ADD-ON)`, true)
+  else r.center(`KOT #${no}`, true)
   r.rule('=')
 
   r.kv(`Order #${p.orderNo}`, p.at)
   r.kv(TYPE_LABEL[p.orderType] ?? p.orderType, p.tableLabel ?? '')
   if (p.ticketLabel) r.kv('Ticket', p.ticketLabel)
   r.kv('Waiter', p.waiterName)
+  if (p.orderNote) {
+    r.rule('-')
+    r.wrap(`NOTE: ${p.orderNote}`, true)
+  }
   r.rule('=')
 
   for (const l of p.lines) {
@@ -284,6 +326,98 @@ export function renderZReport(p: ZReportPayload, widthMm: number): Buffer {
   return r.cut().toBuffer()
 }
 
+/**
+ * Day close report. One section per shift (who, when, sales, cash), so the
+ * owner can see which shift was short, then the counter's totals for the day.
+ */
+export function renderDayReport(p: DayReportPayload, widthMm: number): Buffer {
+  const cols = colsFor(widthMm)
+  const r = new Receipt(cols)
+  // A payload missing a field (queued by an older hub) prints a dash, never NaN.
+  const m = (v: number | null | undefined) =>
+    typeof v === 'number' && Number.isFinite(v) ? formatMoney(v, p.currencyDecimals) : '-'
+  const when = (d: string | Date | null) =>
+    d ? new Date(d).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '-'
+  const d = p.day
+  const t = d.totals
+
+  r.center(p.businessName, true)
+  r.big('DAY CLOSE')
+  r.rule('=')
+  r.kv('Counter', d.counterName)
+  r.kv('From', when(d.from))
+  r.kv('To', when(d.to))
+  r.kv('Shifts', String(d.shifts.length))
+  if (d.closedBy) r.kv('Closed by', d.closedBy)
+  r.rule('=')
+
+  d.shifts.forEach((z, i) => {
+    r.line(`SHIFT ${i + 1} - ${z.cashierName}`)
+    r.kv('  Opened', when(z.openedAt))
+    r.kv('  Closed', when(z.closedAt))
+    for (const pm of z.paymentModes) r.kv(`  ${pm.name} (${pm.count})`, m(pm.total))
+    r.kv('  Sales', m(z.grandTotal), true)
+    r.kv('  Opening float', m(z.cash.openingFloat))
+    r.kv('  + Cash sales', m(z.cash.cashSales))
+    r.kv('  - Expenses from drawer', m(z.cash.drawerExpenses))
+    r.kv('  Expected in drawer', m(z.cash.expected))
+    r.kv('  Counted', z.cash.counted == null ? '-' : m(z.cash.counted))
+    r.kv('  Variance', z.cash.variance == null ? '-' : m(z.cash.variance), true)
+    r.rule('-')
+  })
+
+  r.line()
+  r.center('COUNTER TOTALS', true)
+  r.rule('=')
+  r.line('SALES BY PAYMENT MODE')
+  for (const pm of t.paymentModes) r.kv(`  ${pm.name} (${pm.count})`, m(pm.total))
+  r.rule('-')
+  r.kv('  TOTAL SALES', m(t.grandTotal), true)
+  r.line()
+
+  r.line('EXPENSES')
+  for (const e of t.expenses.byCategory) r.kv(`  ${e.category} (${e.count})`, m(e.total))
+  r.kv('  From drawer', m(t.expenses.drawer))
+  r.kv('  Not from drawer', m(t.expenses.other))
+  r.rule('-')
+  r.kv('  TOTAL EXPENSES', m(t.expenses.total), true)
+  r.line()
+
+  r.line('CASH (ALL SHIFTS)')
+  r.kv('  Opening floats', m(t.cash.openingFloats))
+  r.kv('  + Cash sales', m(t.cash.cashSales))
+  r.kv('  - Expenses from drawer', m(t.cash.drawerExpenses))
+  r.rule('-')
+  r.kv('  Expected', m(t.cash.expected))
+  r.kv('  Counted', m(t.cash.counted))
+  r.kv('  VARIANCE', m(t.cash.variance), true)
+  r.line()
+
+  r.line('SALES BY ORDER TYPE')
+  for (const o of t.orderTypes) r.kv(`  ${o.type} (${o.count})`, m(o.total))
+  r.line()
+
+  if (t.waiters.length) {
+    r.line('SALES BY WAITER')
+    for (const w of t.waiters) r.kv(`  ${w.name} (${w.orders})`, m(w.total))
+    r.line()
+  }
+
+  r.rule('=')
+  r.kv(`Discounts (${t.discounts.count})`, m(t.discounts.total))
+  r.kv(`Voids (${t.voids.count})`, m(t.voids.total))
+  r.kv('Saved without KOT', String(t.savedWithoutKot))
+  r.kv(`${p.taxName} collected`, m(t.vatCollected))
+  r.kv(
+    'Invoices',
+    t.invoiceRange.from == null
+      ? 'none'
+      : `${p.invoicePrefix}${t.invoiceRange.from} - ${p.invoicePrefix}${t.invoiceRange.to}`,
+  )
+  r.rule('=')
+  return r.cut().toBuffer()
+}
+
 /** Dispatch used by the print queue. */
 /** An itemised expense under the drawer total, wrapping a long note. */
 function expenseRow(r: Receipt, cols: number, text: string, amount: string) {
@@ -317,7 +451,10 @@ export function renderJob(kind: string, payload: unknown, widthMm: number): Buff
       // Cash taken against a bill already printed: open the drawer, no paper.
       return new Receipt(colsFor(widthMm)).kick().toBuffer()
     case 'report':
-      return renderZReport(payload as ZReportPayload, widthMm)
+      // A day close shares the kind; only its payload carries `day`.
+      return (payload as Partial<DayReportPayload>).day
+        ? renderDayReport(payload as DayReportPayload, widthMm)
+        : renderZReport(payload as ZReportPayload, widthMm)
     case 'test':
       return renderTest(payload as TestPayload, widthMm)
     default:

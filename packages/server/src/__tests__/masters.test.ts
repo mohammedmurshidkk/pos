@@ -43,6 +43,13 @@ describe('validation', () => {
       .toThrow(/minimum cannot be more/i)
   })
 
+  it('saves a blank maximum as no limit', () => {
+    const g = M.createMaster('modifierGroups', { name: 'Preferences', minSelect: 0, maxSelect: null }, admin) as { maxSelect: number }
+    expect(g.maxSelect).toBe(0)
+    const required = M.createMaster('modifierGroups', { name: 'Sides', minSelect: 2, maxSelect: null }, admin) as { maxSelect: number }
+    expect(required.maxSelect).toBe(0)
+  })
+
   it('rejects a discount cap over 100 percent', () => {
     expect(() => M.createMaster('employees', { name: 'Generous', role: 'admin', maxDiscountPercent: 150 }, admin))
       .toThrow()
@@ -71,6 +78,16 @@ describe('create and update', () => {
     expect(updated.ip).toBe('192.168.1.41')
     expect(updated.name).toBe('Grill Printer')  // untouched
     expect(updated.port).toBe(9100)
+  })
+
+  it('keeps an item short name, trimmed, and stores a blank one as none', () => {
+    const cat = db.select().from(s.categories).get()!
+    const item = M.createMaster('items', { categoryId: cat.id, name: 'Chicken Biriyani Special', price: 3200, shortName: ' cbs ' }, admin) as
+      { id: string; shortName: string | null }
+    expect(item.shortName).toBe('cbs')
+    // An edit that does not mention it leaves it alone; a blank one clears it.
+    expect((M.updateMaster('items', item.id, { price: 3300 }, admin) as { shortName: string | null }).shortName).toBe('cbs')
+    expect((M.updateMaster('items', item.id, { shortName: '' }, admin) as { shortName: string | null }).shortName).toBeNull()
   })
 
   it('records every change against the person who made it', () => {

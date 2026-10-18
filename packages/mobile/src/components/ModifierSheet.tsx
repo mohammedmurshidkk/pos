@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import type { Item, Modifier, ModifierGroup } from '../api/types'
 import { color, radius, space, touch } from '../theme/tokens'
@@ -14,6 +14,8 @@ interface Props {
   groups: ModifierGroup[]
   modifiersIn: (groupId: string) => Modifier[]
   money: (minor: number) => string
+  /** A line already in the cart: start from its choices and save over it. */
+  initial?: { qty: number; note: string | null; modifiers: ChosenModifier[] } | null
   onAdd: (qty: number, note: string | null, modifiers: ChosenModifier[]) => void
   onClose: () => void
 }
@@ -25,12 +27,26 @@ interface Props {
  * required group is satisfied, so an under-specified item can never reach the
  * kitchen and come back as a question.
  */
-export function ModifierSheet({ item, groups, modifiersIn, money, onAdd, onClose }: Props) {
+export function ModifierSheet({ item, groups, modifiersIn, money, initial, onAdd, onClose }: Props) {
   const [chosen, setChosen] = useState<Record<string, string[]>>({})
   const [note, setNote] = useState('')
   const [qty, setQty] = useState(1)
 
   const reset = () => { setChosen({}); setNote(''); setQty(1) }
+
+  // The sheet stays mounted, so load a line's choices each time it opens on one.
+  useEffect(() => {
+    if (!item || !initial) return
+    const out: Record<string, string[]> = {}
+    for (const g of groups) {
+      const ids = modifiersIn(g.id).map((m) => m.id)
+      const picked = initial.modifiers.filter((m) => ids.includes(m.id)).map((m) => m.id)
+      if (picked.length) out[g.id] = picked
+    }
+    setChosen(out)
+    setNote(initial.note ?? '')
+    setQty(initial.qty)
+  }, [item, initial])
 
   const toggle = (group: ModifierGroup, modifierId: string) => {
     setChosen((prev) => {
@@ -39,8 +55,9 @@ export function ModifierSheet({ item, groups, modifiersIn, money, onAdd, onClose
         return { ...prev, [group.id]: current.filter((id) => id !== modifierId) }
       }
       // A single-select group replaces; a multi-select group fills to its cap.
-      if (group.maxSelect <= 1) return { ...prev, [group.id]: [modifierId] }
-      if (current.length >= group.maxSelect) return prev
+      // maxSelect 0 means no cap.
+      if (group.maxSelect === 1) return { ...prev, [group.id]: [modifierId] }
+      if (group.maxSelect > 0 && current.length >= group.maxSelect) return prev
       return { ...prev, [group.id]: [...current, modifierId] }
     })
   }
@@ -69,8 +86,9 @@ export function ModifierSheet({ item, groups, modifiersIn, money, onAdd, onClose
       <ScrollView contentContainerStyle={styles.body}>
         {groups.map((g) => {
           const picked = chosen[g.id] ?? []
-          const hint = g.minSelect > 0 && g.maxSelect <= 1
+          const hint = g.minSelect > 0 && g.maxSelect === 1
             ? 'Choose 1'
+            : g.maxSelect === 0 ? (g.minSelect > 0 ? `Choose ${g.minSelect} or more` : 'Choose any')
             : g.maxSelect > 1 ? `Choose up to ${g.maxSelect}` : 'Optional'
           return (
             <View key={g.id} style={styles.group}>
@@ -112,7 +130,7 @@ export function ModifierSheet({ item, groups, modifiersIn, money, onAdd, onClose
       <View style={styles.footer}>
         <QtyStepper qty={qty} onChange={(q) => setQty(Math.max(1, q))} />
         <Button
-          label={unmet.length > 0 ? `Choose ${unmet[0]!.name}` : `Add to Order · ${money(unit * qty)}`}
+          label={unmet.length > 0 ? `Choose ${unmet[0]!.name}` : `${initial ? 'Save' : 'Add to Order'} · ${money(unit * qty)}`}
           flex={1}
           disabled={unmet.length > 0}
           onPress={() => { onAdd(qty, note.trim() || null, selected); reset() }}

@@ -79,6 +79,31 @@ gh run download --name waiter-apk        --dir ~/Desktop/pos-v0.4.0
 Or on the website: **Actions** → open the run → **Artifacts** at the bottom.
 GitHub keeps them for 30 days — keep your own copy of every version you give a shop.
 
+> **Update 2026-10-18 — in-app updates.** Steps 1 and 5 change; 2–4 stay.
+>
+> 1. **Version and release notes in one command:** make sure `CHANGELOG.md` has
+>    what changed under `## [Unreleased]` (plain words, for the shop), then
+>    `pnpm release 0.7.0`. It renames [Unreleased] to `[0.7.0] - <today>` and sets
+>    `packages/desktop/package.json`. The tablet app takes the same version and
+>    its `versionCode` is derived from it, so `packages/mobile/app.json` no longer
+>    holds either.
+> 2. Commit, push and tag as before. The tag must match the version: CI stops
+>    with a clear message if the tag, `package.json` and `CHANGELOG.md` disagree.
+> 3. Both builds now **publish to the GitHub release** of the tag (Releases page of
+>    the repo): the `.exe`, `latest.yml`, the `.blockmap` and
+>    `ZentivoPOS-Waiter-<version>.apk`, with the notes from `CHANGELOG.md`.
+> 4. **Nothing to send to shops.** Within about 4 hours (or Settings → Updates →
+>    Check for updates) each counter shows **Update 0.7.0** in the top bar,
+>    downloads it, and installs on **Restart and update**. It also fetches the
+>    tablet APK of its version; tablets then show **App update available** on Home
+>    and install it from the counter over the shop wifi.
+>
+> Needs: the repo stays **public** (counters read releases without a login), and
+> every APK is signed with the same key (CI uses prebuild's `debug.keystore`;
+> switching to a private release key later means uninstalling and re-pairing each
+> tablet once). The first version with updates has to be installed by hand one
+> last time.
+
 ---
 
 ## Installing
@@ -100,6 +125,10 @@ GitHub keeps them for 30 days — keep your own copy of every version you give a
 
 Updating: run the newer installer over the old one. The database, licence and
 settings are kept.
+
+> **Update 2026-10-18:** from the first version with in-app updates on, use
+> **Restart and update** in the top bar (or Settings → Updates) instead. Running a
+> newer installer by hand still works.
 
 The superadmin screen is reached later with **Ctrl + Alt + Shift + A**.
 
@@ -193,3 +222,5 @@ The APK needs ~8 GB of free disk to build locally — use GitHub.
 
 `licence-private.pem` is the only way to make or renew keys. Keep backups (password manager,
 USB stick, encrypted cloud). Never commit it, email it, or paste it anywhere.
+
+python3 -m http.server 8000

@@ -114,12 +114,13 @@ export function MenuImport({ onClose, onDone }: { onClose: () => void; onDone: (
   }
 
   const nothingToDo = plan
-    && plan.categoriesToCreate.length + plan.itemsToCreate.length + plan.itemsToUpdate.length === 0
+    && plan.categoriesToCreate.length + plan.itemsToCreate.length + plan.itemsToUpdate.length
+      + plan.shortNamesToSet.length === 0
 
   return (
     <Modal
       title="Import menu"
-      subtitle="One line per item: category, item, price, kitchen. Kitchens must already exist — the kitchen decides the KOT printer."
+      subtitle="One line per item: category, item, short name (optional), price, kitchen. Kitchens must already exist — the kitchen decides the KOT printer."
       onClose={onClose}
       width={820}
     >
@@ -145,7 +146,8 @@ export function MenuImport({ onClose, onDone }: { onClose: () => void; onDone: (
       {plan?.applied ? (
         <Banner tone="success">
           Imported — {plan.categoriesToCreate.length} categories and {plan.itemsToCreate.length} items added,
-          {' '}{plan.itemsToUpdate.length} prices changed.
+          {' '}{plan.itemsToUpdate.length} prices changed
+          {plan.shortNamesToSet.length ? `, ${plan.shortNamesToSet.length} short names set` : ''}.
         </Banner>
       ) : null}
 
@@ -200,11 +202,17 @@ export function MenuImport({ onClose, onDone }: { onClose: () => void; onDone: (
         <Section title="Changes">
           <div>
             {plan.categoriesToCreate.length} new categories · {plan.itemsToCreate.length} new items
-            {' '}· {plan.itemsToUpdate.length} price changes · {plan.unchanged} unchanged
+            {' '}· {plan.itemsToUpdate.length} price changes · {plan.shortNamesToSet.length} short names
+            {' '}· {plan.unchanged} unchanged
           </div>
           {plan.itemsToUpdate.map((u) => (
             <div key={`${u.category}/${u.name}`} className="muted">
               {u.category} › {u.name}: <span className="money">{money(u.from)}</span> → <strong className="money">{money(u.to)}</strong>
+            </div>
+          ))}
+          {plan.shortNamesToSet.map((u) => (
+            <div key={`short:${u.category}/${u.name}`} className="muted">
+              {u.category} › {u.name}: short name {u.from ? <span>{u.from}</span> : 'none'} → <strong>{u.to}</strong>
             </div>
           ))}
         </Section>

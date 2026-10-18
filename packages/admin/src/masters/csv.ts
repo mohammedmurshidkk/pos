@@ -30,12 +30,13 @@ export function parseCsv(text: string): string[][] {
 }
 
 /** Header spellings people actually type. Matched case- and space-insensitively. */
-type Column = 'category' | 'item' | 'price' | 'kitchen'
+type Column = 'category' | 'item' | 'price' | 'kitchen' | 'shortName'
 const COLUMNS: Record<Column, string[]> = {
   category: ['category', 'categoryname', 'group'],
   item: ['item', 'itemname', 'name'],
   price: ['price', 'rate', 'amount'],
   kitchen: ['kitchen', 'kitchenname', 'kot'],
+  shortName: ['shortname', 'short', 'shortcode', 'code', 'itemcode'],
 }
 
 export type SheetResult = { rows: MenuImportRow[] } | { error: string }
@@ -65,7 +66,8 @@ export function sheetToRows(text: string): SheetResult {
     if (cells.every((c) => c.trim() === '')) return
     const at = (k: Column) => (index[k] === -1 ? '' : (cells[index[k]] ?? '').trim())
     rows.push({
-      category: at('category'), item: at('item'), price: at('price'), kitchen: at('kitchen') || null, line: i + 2,
+      category: at('category'), item: at('item'), price: at('price'), kitchen: at('kitchen') || null,
+      shortName: at('shortName') || undefined, line: i + 2,
     })
   })
   if (rows.length === 0) return { error: 'The file has a header but no items.' }
@@ -78,11 +80,11 @@ const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` :
 export function templateCsv(kitchens: string[]): string {
   const k = (i: number) => kitchens[i % Math.max(kitchens.length, 1)] ?? ''
   const lines = [
-    ['category', 'item', 'price', 'kitchen'],
-    ['Grills', 'Chicken Tikka', '32.00', k(0)],
-    ['Grills', 'Mixed Grill', '55.00', k(0)],
-    ['Juices', 'Fresh Orange', '14.00', k(1)],
-    ['Juices', 'Lemon Mint', '12.00', k(1)],
+    ['category', 'item', 'short name', 'price', 'kitchen'],
+    ['Grills', 'Chicken Tikka', 'ct', '32.00', k(0)],
+    ['Grills', 'Mixed Grill', 'mg', '55.00', k(0)],
+    ['Juices', 'Fresh Orange', 'fo', '14.00', k(1)],
+    ['Juices', 'Lemon Mint', 'lm', '12.00', k(1)],
   ]
   return lines.map((l) => l.map(cell).join(',')).join('\r\n') + '\r\n'
 }
