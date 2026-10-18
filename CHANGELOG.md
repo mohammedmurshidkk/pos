@@ -17,7 +17,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions:
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-10-18
+## [1.3.2] - 2026-10-18
 
 ### Added
 - **Updates from inside the app.** The counter checks for a new version by itself, shows
