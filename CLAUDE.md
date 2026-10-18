@@ -379,6 +379,13 @@ cannot reach its own hub. Rebuild before any Windows test.
 > result) before the open-counter screen (`CounterClosed` in `OpenCounter.tsx`,
 > `closedShift` in the store).
 
+> **Update 2026-10-18:** **expenses can be edited and deleted** on the counter
+> (Expenses → Edit), only while their shift is open; after close the Z-report is
+> final and the hub refuses. Delete is soft (`expenses.deleted_at`, migration
+> `0012`): every query on `expenses` must skip deleted rows. The **Z-report
+> lists each drawer expense** (category: note, amount) under the total
+> (`cash.drawerExpenseList`). Server tests 282.
+
 Never verified: **the installer on real Windows**, **a real thermal printer**,
 **the APK on a real tablet**.
 

@@ -467,6 +467,12 @@ export const expenses = sqliteTable('expenses', {
   /** Must reduce expected cash, or the Z-report variance is wrong every night. */
   paidFromDrawer: integer('paid_from_drawer', { mode: 'boolean' }).notNull().default(true),
   createdAt: createdAt(),
+  /**
+   * Deleted from the counter while its shift was open. The row stays (nothing
+   * is deleted, only deactivated) but no total, list or Z-report counts it.
+   */
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  deletedBy: text('deleted_by').references(() => employees.id),
 })
 
 export const auditLog = sqliteTable(

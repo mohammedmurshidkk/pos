@@ -14,11 +14,14 @@ const { addItems, createOrder, getOrder, sendToKitchen } = await import('../serv
 const { applyDiscount, settle } = await import('../services/billing.js')
 const { voidLine } = await import('../services/voids.js')
 const { closeShift, openShift, openShiftIdFor, zReport } = await import('../services/shifts.js')
-const { createExpense } = await import('../services/expenses.js')
+const { createExpense, deleteExpense, listExpenses, updateExpense } = await import('../services/expenses.js')
+const { renderZReport } = await import('../templates.js')
 const { eq } = await import('drizzle-orm')
 
 const s = schema
 let ids: Record<string, string> = {}
+/** Paid during the first shift, which the closing tests close. */
+let gasExpenseId = ''
 
 beforeAll(() => {
   migrateDb()
@@ -87,10 +90,10 @@ describe('cash reconciliation', () => {
   it('subtracts drawer expenses from expected cash', () => {
     const shiftId = openShiftIdFor(ids.counter!)!
     const before = zReport(shiftId).cash
-    createExpense({
+    gasExpenseId = createExpense({
       expenseCategoryId: ids.gas!, amount: 18000, note: 'Gas cylinder',
       paidBy: ids.fatima!, counterId: ids.counter!,
-    })
+    }).id
     const after = zReport(shiftId).cash
     expect(after.drawerExpenses).toBe(before.drawerExpenses + 18000)
     expect(after.expected).toBe(before.expected - 18000)
@@ -105,6 +108,76 @@ describe('cash reconciliation', () => {
     expect(short.cash.variance).toBe(-1000)
     const over = zReport(shiftId, z.cash.expected + 250)
     expect(over.cash.variance).toBe(250)
+  })
+})
+
+describe('editing and deleting expenses', () => {
+  it('itemises drawer expenses with category and note', () => {
+    const shiftId = openShiftIdFor(ids.counter!)!
+    const z = zReport(shiftId)
+    expect(z.cash.drawerExpenseList).toContainEqual(expect.objectContaining({
+      category: 'Gas', note: 'Gas cylinder', amount: 18000,
+    }))
+    expect(z.cash.drawerExpenseList.reduce((a, e) => a + e.amount, 0)).toBe(z.cash.drawerExpenses)
+
+    const text = renderZReport({
+      businessName: 'Test', currencyDisplay: 'AED', currencyDecimals: 2, taxName: 'VAT', invoicePrefix: 'INV-',
+      report: z,
+    }, 80).toString('latin1')
+    expect(text).toMatch(/Gas: Gas cylinder\s+180\.00/)
+  })
+
+  it('moves expected cash when an expense is corrected', () => {
+    const shiftId = openShiftIdFor(ids.counter!)!
+    const id = createExpense({
+      expenseCategoryId: ids.gas!, amount: 5000, note: 'Ice', paidBy: ids.fatima!, counterId: ids.counter!,
+    }).id
+    const before = zReport(shiftId).cash
+
+    updateExpense(id, { employeeId: ids.fatima!, amount: 3000, note: 'Ice, two bags' })
+    const after = zReport(shiftId).cash
+    expect(after.drawerExpenses).toBe(before.drawerExpenses - 2000)
+    expect(after.expected).toBe(before.expected + 2000)
+    expect(after.drawerExpenseList).toContainEqual(expect.objectContaining({ note: 'Ice, two bags', amount: 3000 }))
+
+    // Not from the drawer after all: it leaves the drawer total entirely.
+    updateExpense(id, { employeeId: ids.fatima!, paidFromDrawer: false })
+    expect(zReport(shiftId).cash.drawerExpenses).toBe(before.drawerExpenses - 5000)
+
+    const log = db.select().from(s.auditLog).where(eq(s.auditLog.entityId, id)).all()
+    const first = log.find((l) => l.action === 'expense.update')!
+    expect(JSON.parse(first.detailJson!)).toMatchObject({ before: { amount: 5000 }, after: { amount: 3000 } })
+  })
+
+  it('takes a deleted expense out of the drawer, the list and the report, but keeps the row', () => {
+    const shiftId = openShiftIdFor(ids.counter!)!
+    const id = createExpense({
+      expenseCategoryId: ids.gas!, amount: 2500, note: 'Typed twice', paidBy: ids.fatima!, counterId: ids.counter!,
+    }).id
+    const before = zReport(shiftId).cash
+
+    deleteExpense(id, { employeeId: ids.fatima! })
+    const after = zReport(shiftId).cash
+    expect(after.drawerExpenses).toBe(before.drawerExpenses - 2500)
+    expect(after.expected).toBe(before.expected + 2500)
+    expect(after.drawerExpenseList.some((e) => e.note === 'Typed twice')).toBe(false)
+    expect(listExpenses().some((e) => e.id === id)).toBe(false)
+
+    const row = db.select().from(s.expenses).where(eq(s.expenses.id, id)).get()!
+    expect(row.deletedAt).not.toBeNull()
+    expect(row.deletedBy).toBe(ids.fatima)
+    expect(db.select().from(s.auditLog).where(eq(s.auditLog.entityId, id)).all().map((l) => l.action))
+      .toContain('expense.delete')
+
+    expect(() => updateExpense(id, { employeeId: ids.fatima!, amount: 100 })).toThrow(/not found/i)
+    expect(() => deleteExpense(id, { employeeId: ids.fatima! })).toThrow(/not found/i)
+  })
+
+  it('refuses a zero amount and an expense recorded with no shift', () => {
+    expect(() => updateExpense(gasExpenseId, { employeeId: ids.fatima!, amount: 0 })).toThrow(/positive/i)
+    const loose = createExpense({ expenseCategoryId: ids.gas!, amount: 1000, paidBy: ids.fatima! })
+    expect(listExpenses().find((e) => e.id === loose.id)!.editable).toBe(false)
+    expect(() => deleteExpense(loose.id, { employeeId: ids.fatima! })).toThrow(/closed shift/i)
   })
 })
 
@@ -218,5 +291,11 @@ describe('closing', () => {
     expect(() => closeShift(closed.id, 0, ids.fatima!)).toThrow(/already closed/i)
     expect(openShiftIdFor(ids.counter!)).toBeNull()
     expect(openShift({ counterId: ids.counter!, employeeId: ids.rahul!, openingFloat: 20000 })).toBeTruthy()
+  })
+
+  it('locks expenses once their shift is closed, even with a new shift open', () => {
+    expect(listExpenses().find((e) => e.id === gasExpenseId)!.editable).toBe(false)
+    expect(() => updateExpense(gasExpenseId, { employeeId: ids.fatima!, amount: 100 })).toThrow(/closed shift/i)
+    expect(() => deleteExpense(gasExpenseId, { employeeId: ids.fatima! })).toThrow(/closed shift/i)
   })
 })

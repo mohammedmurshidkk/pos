@@ -179,6 +179,13 @@ export const api = {
     expenseCategoryId: string; amount: number; note: string | null
     paidBy: string; counterId: string | null; paidFromDrawer: boolean
   }) => post<{ id: string }>('/api/expenses', body),
+  updateExpense: (id: string, employeeId: string, body: {
+    expenseCategoryId: string; amount: number; note: string | null; paidFromDrawer: boolean
+  }) => request<{ id: string }>(`/api/expenses/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ ...body, employeeId }),
+  }),
+  deleteExpense: (id: string, employeeId: string) =>
+    request<{ deleted: boolean }>(`/api/expenses/${id}?employeeId=${employeeId}`, { method: 'DELETE' }),
 
   licence: () => request<LicenceStatus>('/api/licence'),
   installLicence: (key: string, employeeId: string) =>

@@ -153,6 +153,7 @@ export interface ZReport {
   grandTotal: number
   cash: {
     openingFloat: number; cashSales: number; drawerExpenses: number
+    drawerExpenseList: { category: string; note: string | null; amount: number; createdAt: string }[]
     expected: number; counted: number | null; variance: number | null
   }
   orderTypes: { type: string; count: number; total: number }[]
@@ -192,6 +193,8 @@ export interface Expense {
   id: string; amount: number; note: string | null; paidFromDrawer: boolean
   shiftId: string | null; createdAt: string
   categoryId: string; category: string; paidBy: string
+  /** Its shift is still open, so it can be edited or deleted. */
+  editable: boolean
 }
 
 /** A settled or cancelled order, with what was paid against it. */

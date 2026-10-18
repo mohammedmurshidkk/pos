@@ -7,6 +7,8 @@ Newest first. The docs keep the old text with a dated **Update** block under it
 
 | Area | Change | Where |
 |---|---|---|
+| Z-report | Each drawer expense listed under "Expenses from drawer" (category: note, amount), printed and on the Shift screen. Was: only the total | `server/src/services/shifts.ts`, `server/src/templates.ts`, `admin/src/screens/Shift.tsx`, `docs/01-product-spec.md` |
+| Expenses | **Edit** and **Delete** an expense while its shift is open (counter only, audited, delete keeps the row as `deleted_at`). Drawer and Z-report totals follow. Migration `0012` | `server/src/services/expenses.ts`, `admin/src/screens/Expenses.tsx`, `docs/03-screens.md` A16 |
 | Settle | **Settle** (no printing) next to **Settle & print bill** when no bill was printed yet, or **Settle & print revised bill** when it changed since; one **Settle** when the printed bill is current. Without printing, the invoice is still numbered and cash still opens the drawer; print later from Bills. `settle` takes `print: false` | `admin/src/screens/Settle.tsx`, `server/src/services/billing.ts`, `docs/03-screens.md` A04 |
 
 ## 2026-10-08

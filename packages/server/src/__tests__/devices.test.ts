@@ -101,6 +101,10 @@ describe('access control', () => {
       ['GET', '/api/reports/summary'],
       ['POST', '/api/licence'],
       ['POST', '/api/devices/code'],
+      // Money handling stays on the counter PC.
+      ['POST', '/api/expenses'],
+      ['PATCH', '/api/expenses/x'],
+      ['DELETE', '/api/expenses/x'],
     ] as const) {
       const res = await app.inject({ method, url, remoteAddress: LAN, headers: h, payload: {} })
       expect(res.statusCode, `${method} ${url}`).toBe(403)

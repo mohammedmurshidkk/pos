@@ -180,6 +180,10 @@ shifts          id, employee_id, counter_id, opened_at, closed_at,
 expenses        id, expense_category_id, amount, note, paid_by,
                 shift_id, paid_from_drawer, created_at
 
+> **Update 2026-10-18:** `expenses` gains `deleted_at` and `deleted_by` (migration
+> `0012`). An expense can be edited or deleted only while its shift is open; a
+> deleted one stays in the table for the audit log and counts nowhere.
+
 customers       id, name, phone (unique), created_at
 customer_addresses id, customer_id, label, area, building, flat, landmark, notes
 
@@ -399,6 +403,18 @@ Top employees  Rahul 3,200 · Anees 2,850
 ```
 
 - Expenses paid from the cash drawer **must** reduce expected cash, or the variance is wrong every night.
+
+> **Update 2026-10-18:** the printed Z-report lists **each** drawer expense under
+> the "Expenses from drawer" total, as *category: note* and its amount, oldest
+> first (a long note wraps). The total and expected cash follow edits and
+> deletes made before close, and deleted expenses are not listed.
+>
+> ```
+>   - Expenses from drawer                  210.00
+>       Gas: Gas cylinder                   180.00
+>       Vegetables: Ice, two bags from the   30.00
+>         shop next door
+> ```
 - Invoice range on the Z-report — auditors ask for exactly this, and it is one query.
 - Employee figures group by **`waiter_id`**, not `created_by` — otherwise every order the cashier keyed on a waiter's behalf credits the cashier.
 

@@ -131,6 +131,18 @@ One generic screen for twelve masters: printers, kitchens, counters, categories,
 > - Also opened from **Shift → Pay out**, so a mid-shift payout updates the expected drawer straight away
 > - Counter PC only: `/api/expenses` is not a tablet route
 
+> **Update 2026-10-18:** **Edit and delete.** Each row whose shift is still open
+> has **Edit**, which opens the same modal filled in (category, amount, note,
+> paid from drawer) with **Delete** at the bottom-left; Delete asks once more and
+> says the expected drawer goes back up. Once the shift closes the row has no
+> Edit: its Z-report is printed and the drawer counted. An expense recorded with
+> no shift has no Edit either. `PATCH /api/expenses/:id`, `DELETE
+> /api/expenses/:id?employeeId=` — counter only, neither is a tablet route.
+> Deleting keeps the row (`deleted_at`, `deleted_by`) and every list and total
+> skips it. Each change is audited (`expense.update` with before and after,
+> `expense.delete`). **Shift** lists each drawer expense under "− Expenses from
+> drawer".
+
 ## A-BILLS · Closed bills — P0 · **new 2026-10-04, built**
 Billing lists open orders only, so a settled bill used to be unreachable.
 - Sidebar **Bills**. Range chips (same as Expenses), search by invoice, order no, table, label, phone or car; Settled / Cancelled

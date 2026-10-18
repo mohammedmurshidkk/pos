@@ -21,6 +21,7 @@ export function Expenses() {
   const [rows, setRows] = useState<Expense[]>([])
   const [label, setLabel] = useState('Today')
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Expense | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -76,6 +77,7 @@ export function Expenses() {
                 <th style={th}>Paid by</th>
                 <th style={th}>Source</th>
                 <th style={{ ...th, textAlign: 'right' }}>Amount</th>
+                <th style={th} />
               </tr>
             </thead>
             <tbody>
@@ -87,6 +89,10 @@ export function Expenses() {
                   <td style={td}>{r.paidBy}</td>
                   <td style={td}>{r.paidFromDrawer ? <Pill label="Drawer" tone="warning" /> : <Pill label="Other" tone="info" />}</td>
                   <td style={td} className="money">{money(r.amount)}</td>
+                  <td style={{ ...td, textAlign: 'right', width: 1 }}>
+                    {/* Only while its shift is open: after close the Z-report is final. */}
+                    {r.editable ? <Button variant="ghost" onClick={() => setEditing(r)}>Edit</Button> : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -106,6 +112,14 @@ export function Expenses() {
           onSaved={() => { setAdding(false); void refresh() }}
         />
       ) : null}
+      {editing ? (
+        <ExpenseModal
+          expense={editing}
+          categories={categories.filter((c) => c.active || c.id === editing.categoryId)}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void refresh() }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -117,23 +131,30 @@ export function Expenses() {
  * "Paid from drawer" is on whenever a shift is open: that is the case the
  * Z-report depends on. With no open shift there is no drawer, and the hub
  * records it as paid from elsewhere whatever the client sends.
+ *
+ * With `expense` it edits that expense instead, and offers Delete. The hub
+ * allows both only while the expense's shift is open, and audits each change;
+ * the drawer and Z-report totals are recomputed from the rows.
  */
-export function ExpenseModal({ categories, onClose, onSaved }: {
+export function ExpenseModal({ expense, categories, onClose, onSaved }: {
+  expense?: Expense
   categories?: ExpenseCategory[]
   onClose: () => void
   onSaved: () => void
 }) {
   const { data, operator, counterId, money } = useStore()
+  const decimals = data?.settings.currencyDecimals ?? 2
   const [cats, setCats] = useState<ExpenseCategory[]>(categories ?? [])
-  const [categoryId, setCategoryId] = useState(categories?.[0]?.id ?? '')
-  const [amount, setAmount] = useState('')
-  const [note, setNote] = useState('')
-  const [shiftOpen, setShiftOpen] = useState<boolean | null>(null)
-  const [fromDrawer, setFromDrawer] = useState(true)
+  const [categoryId, setCategoryId] = useState(expense?.categoryId ?? categories?.[0]?.id ?? '')
+  const [amount, setAmount] = useState(expense ? (expense.amount / 10 ** decimals).toFixed(decimals) : '')
+  const [note, setNote] = useState(expense?.note ?? '')
+  // An editable expense always belongs to an open shift.
+  const [shiftOpen, setShiftOpen] = useState<boolean | null>(expense ? true : null)
+  const [fromDrawer, setFromDrawer] = useState(expense?.paidFromDrawer ?? true)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const decimals = data?.settings.currencyDecimals ?? 2
   const minor = Math.round(Number(amount || 0) * 10 ** decimals)
   const valid = categoryId !== '' && Number.isFinite(minor) && minor > 0
 
@@ -147,6 +168,7 @@ export function ExpenseModal({ categories, onClose, onSaved }: {
         })
         .catch(() => setError('Could not load expense categories.'))
     }
+    if (expense) return
     if (counterId) {
       api.currentShift(counterId)
         .then((s) => { setShiftOpen(s.open); if (!s.open) setFromDrawer(false) })
@@ -155,16 +177,34 @@ export function ExpenseModal({ categories, onClose, onSaved }: {
       setShiftOpen(false)
       setFromDrawer(false)
     }
-  }, [categories, counterId])
+  }, [categories, counterId, expense])
 
   const save = async () => {
     if (!operator) return setError('Sign in at the counter first.')
     setBusy(true)
     try {
-      await api.createExpense({
-        expenseCategoryId: categoryId, amount: minor, note: note.trim() || null,
-        paidBy: operator.id, counterId, paidFromDrawer: fromDrawer,
-      })
+      if (expense) {
+        await api.updateExpense(expense.id, operator.id, {
+          expenseCategoryId: categoryId, amount: minor, note: note.trim() || null, paidFromDrawer: fromDrawer,
+        })
+      } else {
+        await api.createExpense({
+          expenseCategoryId: categoryId, amount: minor, note: note.trim() || null,
+          paidBy: operator.id, counterId, paidFromDrawer: fromDrawer,
+        })
+      }
+      onSaved()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Something went wrong.')
+      setBusy(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!operator || !expense) return setError('Sign in at the counter first.')
+    setBusy(true)
+    try {
+      await api.deleteExpense(expense.id, operator.id)
       onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Something went wrong.')
@@ -173,7 +213,12 @@ export function ExpenseModal({ categories, onClose, onSaved }: {
   }
 
   return (
-    <Modal title="Add expense" subtitle={`Recorded against ${operator?.name ?? 'you'}.`} onClose={onClose} width={480}>
+    <Modal
+      title={expense ? 'Edit expense' : 'Add expense'}
+      subtitle={expense ? `Paid by ${expense.paidBy}. Changes are recorded against ${operator?.name ?? 'you'}.` : `Recorded against ${operator?.name ?? 'you'}.`}
+      onClose={onClose}
+      width={480}
+    >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {cats.length === 0 ? (
         <Banner tone="warning">No expense categories yet. Add them under Setup → Expense categories.</Banner>
@@ -213,9 +258,29 @@ export function ExpenseModal({ categories, onClose, onSaved }: {
           </div>
         </span>
       </label>
+      {confirmDelete && expense ? (
+        <Banner tone="danger">
+          Delete this {money(expense.amount)} {expense.category} expense?
+          {expense.paidFromDrawer ? ' Expected cash in the drawer goes back up by the same amount.' : ''}
+        </Banner>
+      ) : null}
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!valid || busy} onClick={() => void save()}>Save expense</Button>
+        {expense && !confirmDelete ? (
+          <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)} style={{ marginRight: 'auto' }}>Delete</Button>
+        ) : null}
+        {confirmDelete ? (
+          <>
+            <Button onClick={() => setConfirmDelete(false)}>Keep it</Button>
+            <Button variant="danger" disabled={busy} onClick={() => void remove()}>Delete expense</Button>
+          </>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={!valid || busy} onClick={() => void save()}>
+              {expense ? 'Save changes' : 'Save expense'}
+            </Button>
+          </>
+        )}
       </div>
     </Modal>
   )

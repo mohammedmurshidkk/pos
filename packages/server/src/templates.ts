@@ -67,6 +67,8 @@ export interface ZReportPayload {
     grandTotal: number
     cash: {
       openingFloat: number; cashSales: number; drawerExpenses: number
+      /** Absent on report jobs queued before expenses were itemised. */
+      drawerExpenseList?: { category: string; note: string | null; amount: number }[]
       expected: number; counted: number | null; variance: number | null
     }
     orderTypes: { type: string; count: number; total: number }[]
@@ -246,6 +248,11 @@ export function renderZReport(p: ZReportPayload, widthMm: number): Buffer {
   r.kv('  Opening float', m(z.cash.openingFloat))
   r.kv('  + Cash sales', m(z.cash.cashSales))
   r.kv('  - Expenses from drawer', m(z.cash.drawerExpenses))
+  // One line per payout — category, then the note — so a shortage can be
+  // checked against what was actually paid for.
+  for (const e of z.cash.drawerExpenseList ?? []) {
+    expenseRow(r, cols, `${e.category}${e.note ? `: ${e.note}` : ''}`, m(e.amount))
+  }
   r.rule('-')
   r.kv('  Expected in drawer', m(z.cash.expected), true)
   r.kv('  Counted', z.cash.counted == null ? '-' : m(z.cash.counted))
@@ -278,6 +285,26 @@ export function renderZReport(p: ZReportPayload, widthMm: number): Buffer {
 }
 
 /** Dispatch used by the print queue. */
+/** An itemised expense under the drawer total, wrapping a long note. */
+function expenseRow(r: Receipt, cols: number, text: string, amount: string) {
+  const indent = '      '
+  const width = cols - indent.length - amount.length - 1
+  const rows: string[] = []
+  let cur = ''
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    // A single word longer than the column is cut rather than overflowing.
+    const word = w.length > width ? w.slice(0, width) : w
+    if (cur && `${cur} ${word}`.length > width) {
+      rows.push(cur)
+      cur = word
+    } else cur = cur ? `${cur} ${word}` : word
+  }
+  if (cur) rows.push(cur)
+  const first = rows.shift() ?? ''
+  r.line(`${indent}${first}${' '.repeat(Math.max(1, cols - indent.length - first.length - amount.length))}${amount}`)
+  for (const row of rows) r.line(`${indent}  ${row}`)
+}
+
 export function renderJob(kind: string, payload: unknown, widthMm: number): Buffer {
   switch (kind) {
     case 'kot':

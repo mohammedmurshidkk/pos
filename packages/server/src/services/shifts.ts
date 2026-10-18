@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNotNull, isNull, lte, ne, sum } from 'drizzle-orm'
+import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lte, ne, sum } from 'drizzle-orm'
 import { newId, schema } from '@pos/shared'
 import { audit } from '../audit.js'
 import { db, raw } from '../db.js'
@@ -79,6 +79,8 @@ export interface ZReport {
     openingFloat: number
     cashSales: number
     drawerExpenses: number
+    /** Each expense behind `drawerExpenses`, oldest first. */
+    drawerExpenseList: { category: string; note: string | null; amount: number; createdAt: Date }[]
     expected: number
     counted: number | null
     variance: number | null
@@ -124,12 +126,25 @@ export function zReport(shiftId: string, countedCash?: number | null): ZReport {
 
   // Expenses paid out of the drawer must reduce expected cash, or the variance
   // is wrong every single night.
-  const drawerExpenses = Number(
-    db.select({ total: sum(s.expenses.amount) })
-      .from(s.expenses)
-      .where(and(eq(s.expenses.shiftId, shiftId), eq(s.expenses.paidFromDrawer, true)))
-      .get()?.total ?? 0,
-  )
+  // Listed one by one on the report, so the cashier can see what each payout
+  // was for. Deleted expenses are left out of both the list and the total.
+  const drawerExpenseList = db
+    .select({
+      category: s.expenseCategories.name,
+      note: s.expenses.note,
+      amount: s.expenses.amount,
+      createdAt: s.expenses.createdAt,
+    })
+    .from(s.expenses)
+    .innerJoin(s.expenseCategories, eq(s.expenses.expenseCategoryId, s.expenseCategories.id))
+    .where(and(
+      eq(s.expenses.shiftId, shiftId),
+      eq(s.expenses.paidFromDrawer, true),
+      isNull(s.expenses.deletedAt),
+    ))
+    .orderBy(asc(s.expenses.createdAt))
+    .all()
+  const drawerExpenses = drawerExpenseList.reduce((a, e) => a + e.amount, 0)
 
   const expected = shift.openingFloat + cashSales - drawerExpenses
   const counted = countedCash ?? shift.countedCash ?? null
@@ -203,6 +218,7 @@ export function zReport(shiftId: string, countedCash?: number | null): ZReport {
       openingFloat: shift.openingFloat,
       cashSales,
       drawerExpenses,
+      drawerExpenseList,
       expected,
       counted,
       variance: counted == null ? null : counted - expected,

@@ -25,7 +25,7 @@ import {
   createAdmin, listAdmins, requireSuperadmin, resetAdminPin, setAdminActive,
   setSuperadminPassword, setupSuperadmin, superadminConfigured, superadminLogin, superadminLogout,
 } from './services/superadmin.js'
-import { createExpense, listExpenses } from './services/expenses.js'
+import { createExpense, deleteExpense, listExpenses, updateExpense } from './services/expenses.js'
 import { backupStatus, runBackup, setBackupDirectory, startDailyBackups } from './services/backups.js'
 import { discardPrintJob, listPrintJobs, printJobCounts, retryPrintJob, testDrawer } from './services/print-jobs.js'
 import {
@@ -375,6 +375,23 @@ app.post('/api/expenses', async (req) => {
   const expense = createExpense(req.body as Parameters<typeof createExpense>[0])
   broadcast('expense.created', { id: expense.id })
   return expense
+})
+
+// Counter only (not in TABLET_ROUTES), and only while the expense's shift is
+// open — the service refuses once the Z-report is final.
+app.patch('/api/expenses/:id', async (req) => {
+  const { id } = req.params as { id: string }
+  const expense = updateExpense(id, req.body as Parameters<typeof updateExpense>[1])
+  broadcast('expense.updated', { id })
+  return expense
+})
+
+app.delete('/api/expenses/:id', async (req) => {
+  const { id } = req.params as { id: string }
+  const { employeeId } = (req.query ?? {}) as { employeeId: string }
+  const result = deleteExpense(id, { employeeId })
+  broadcast('expense.deleted', { id })
+  return result
 })
 
 /* ───────────────────────────── auth ───────────────────────────── */

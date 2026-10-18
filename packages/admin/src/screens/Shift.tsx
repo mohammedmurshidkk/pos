@@ -120,6 +120,12 @@ export function Shift() {
             <span style={{ flex: 1 }}><Line label="− Expenses from drawer" value={money(report.cash.drawerExpenses)} /></span>
             <Button variant="ghost" style={{ minHeight: 32 }} onClick={() => setPayingOut(true)}>Pay out</Button>
           </div>
+          {report.cash.drawerExpenseList?.map((e, i) => (
+            <div key={i} className="muted" style={{ display: 'flex', gap: 12, paddingLeft: 16, fontSize: 14 }}>
+              <span style={{ flex: 1 }}>{e.category}{e.note ? `: ${e.note}` : ''}</span>
+              <span className="money">{money(e.amount)}</span>
+            </div>
+          ))}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
             <Line label="Expected in drawer" value={money(report.cash.expected)} bold />
           </div>
